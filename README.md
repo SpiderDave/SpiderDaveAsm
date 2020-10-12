@@ -12,9 +12,12 @@ Currently, creates output.txt and output.bin.
 
 ## Features ##
 * Supports all (official) 6502 opcodes
-* Not much else (yet)
+* Anonymous labels
 
 ## Syntax ##
+
+Opcodes:
+    Standard 6502 ocodes are supported.  Opcodes are case-insensitive.
 
 Comments:
     Comments start with a semicolon, and can also be used at the end of a line.
@@ -25,9 +28,16 @@ Comments:
     
 Labels:
     Labels must end in a colon.  Code can be placed on the same line as labels.
+    Anonymous labels are 1 or more "-" or "+" characters.  These labels will only
+    search backwards for "-" and forwards for "+".
     
 ```
     Start:
+    - lda PPUSTATUS     ; wait one frame
+    bpl -
+    
+    - lda PPUSTATUS     ; wait another frame
+    bpl -
 ```
 
 Numbers:
@@ -47,9 +57,10 @@ Operators:
     >   prefix to give upper byte of word
     
 ## Directives ##
+    Most directives may optionally be prefixed with a ".".
 
 =
-    Used to define a symbol.
+    Used to define a symbol.  Symbol names are case-insensitive.
     
 ```
     foobar = $42

@@ -40,13 +40,6 @@ class Map(dict):
         del self.__dict__[key]
 
 
-opcodes = [
-    'adc', 'and', 'asl', 'bcc', 'bcs', 'beq', 'bit', 'bmi', 'bne', 'bpl', 'brk', 'bvc', 'bvs', 'clc',
-    'cld', 'cli', 'clv', 'cmp', 'cpx', 'cpy', 'dec', 'dex', 'dey', 'eor', 'inc', 'inx', 'iny', 'jmp',
-    'jsr', 'lda', 'ldx', 'ldy', 'lsr', 'nop', 'ora', 'pha', 'php', 'pla', 'plp', 'rol', 'ror', 'rti',
-    'rts', 'sbc', 'sec', 'sed', 'sei', 'sta', 'stx', 'sty', 'tax', 'tay', 'tsx', 'txa', 'txs', 'tya'
-]
-
 directives = [
     'if', 'elseif', 'else', 'endif', 'ifdef', 'ifndef', 'equ', 'org', 'base', 'pad',
     'include', 'incsrc', 'incbin', 'bin', 'hex', 'word', 'dw', 'dcw', 'dc.w', 'byte',
@@ -55,7 +48,6 @@ directives = [
     'error', 'inesprg', 'ineschr', 'inesmir', 'inesmap', 'nes2chrram', 'nes2prgram',
     'nes2sub', 'nes2tv', 'nes2vs', 'nes2bram', 'nes2chrbram', 'unstable', 'hunstable'
 ]
-
 
 asm=[
 Map(opcode = 'adc', mode = 'Immediate', byte = 105, length = 2),
@@ -211,6 +203,10 @@ Map(opcode = 'txs', mode = 'Implied', byte = 154, length = 1),
 Map(opcode = 'tya', mode = 'Implied', byte = 152, length = 1),
 ]
 
+
+# Converting to dictionary removes duplicates
+opcodes = list(dict.fromkeys([x.opcode for x in asm]))
+
 implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
 
@@ -241,6 +237,16 @@ def getValueAndLength(v):
     if v=='':
         return 0,0
     
+    if v.startswith('-'):
+        label = v.split(' ',1)[0]
+        return [x[1] for x in aLabels if x[0]==label and x[1]<addr][-1], 2
+    if v.startswith('+'):
+        label = v.split(' ',1)[0]
+        try:
+            return [x[1] for x in aLabels if x[0]==label and x[1]>=addr][0], 2
+        except:
+            return 0,0
+    
     if '+' in v:
         v = v.split('+')
         v = getValue(v[0]) + getValue(v[1])
@@ -269,8 +275,8 @@ def getValueAndLength(v):
     elif isNumber(v):
         l = 1 if int(v,10) <=256 else 2
         v = int(v,10)
-    elif v in symbols:
-        v, l = getValueAndLength(symbols[v])
+    elif v.lower() in symbols:
+        v, l = getValueAndLength(symbols[v.lower()])
     else:
         v = -1
         l = -1
@@ -305,6 +311,7 @@ except:
 lines = file.read().splitlines()
 
 symbols = Map()
+aLabels = []
 for passNum in (1,2):
 
     addr = 0
@@ -321,25 +328,31 @@ for passNum in (1,2):
         originalLine = line
         line = line.strip().split(';',1)[0].strip()
         
-        #print(line)
         b=[]
-        k = line.split(" ",1)[0].strip()
+        k = line.split(" ",1)[0].strip().lower()
         if k.endswith(":"):
             symbols[k[:-1]] = str(addr)
             line = line.split(":",1)[1].strip()
             k = line.split(" ",1)[0].strip()
         
-        if k == ".org":
+        if k!='' and (k=="-"*len(k) or k=="+"*len(k)):
+            if not [k,addr] in aLabels:
+                aLabels.append([k, addr])
+        
+        # prefix is optional for valid directives
+        if k.startswith(".") and k[1:] in directives:
+            k=k[1:]
+        
+        if k == "org":
             addr = getValue(line.split(" ",1)[1])
             currentAddress = addr
-        if k == ".db":
+        if k == "db":
             values = line.split(' ',1)[1].split(",")
             values = [x.strip() for x in values]
-            #print(values)
             b = b + [getValue(x) for x in values]
             out = out + b
             addr = addr + len(b)
-        if k == ".dw":
+        if k == "dw":
             values = line.split(' ',1)[1].split(",")
             values = [x.strip() for x in values]
             values = [getValue(x) for x in values]
@@ -349,9 +362,7 @@ for passNum in (1,2):
             out = out + b
             addr = addr + len(b)
         
-        if k=="-"*len(k) or k=="+"*len(k):
-            pass
-        if k in opcodes:
+        if k.lower() in opcodes:
             v = "0"
             if k in implied and k.strip() == line.strip():
                 op = getOpWithMode(k, "Implied")
@@ -425,5 +436,6 @@ with open('output.txt', 'w') as file:
     print(outputText, file=file)
 
 with open("output.bin", "wb") as file:
-    print(len(out))
     file.write(bytes(out))
+
+
