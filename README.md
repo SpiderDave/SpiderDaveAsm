@@ -50,11 +50,11 @@ Numbers:
 ```
     
 Operators:
-    Supported operators: + - > <
-    +   addition
-    -   subtraction
-    <   prefix to give lower byte of word
-    >   prefix to give upper byte of word
+    Supported operators: + - > <  
+    +   addition  
+    -   subtraction  
+    <   prefix to give lower byte of word  
+    >   prefix to give upper byte of word  
     
 ## Directives ##
     Most directives may optionally be prefixed with a ".".
