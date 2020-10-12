@@ -49,6 +49,10 @@ directives = [
     'nes2sub', 'nes2tv', 'nes2vs', 'nes2bram', 'nes2chrbram', 'unstable', 'hunstable'
 ]
 
+directives = directives + [
+    'byt'
+]
+
 asm=[
 Map(opcode = 'adc', mode = 'Immediate', byte = 105, length = 2),
 Map(opcode = 'adc', mode = 'Zero Page', byte = 101, length = 2),
@@ -319,7 +323,6 @@ def assemble(filename):
         outputText = ''
         
         for i in range(10000000):
-        #for i, line in enumerate(lines):
             if i>len(lines)-1:
                 break
             line = lines[i]
@@ -349,13 +352,13 @@ def assemble(filename):
                 v = line.split(" ",1)[1].strip()
                 print(v)
             
-            if k == "incbin":
+            if k == "incbin" or k == "bin":
                 filename = line.split(" ",1)[1].strip()
                 with open(filename, 'rb') as file:
                     b = list(file.read())
                     out = out + b
             
-            if k == "include":
+            if k == "include" or k=="incsrc":
                 filename = line.split(" ",1)[1].strip()
                 with open(filename, 'r') as file:
                     newLines = file.read().splitlines()
@@ -368,13 +371,13 @@ def assemble(filename):
             if k == "org":
                 addr = getValue(line.split(" ",1)[1])
                 currentAddress = addr
-            if k == "db":
+            if k == "db" or k=="byte" or k == 'byt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
                 b = b + [getValue(x) for x in values]
                 out = out + b
                 addr = addr + len(b)
-            if k == "dw":
+            if k == "dw" or k=="word" or k=='dbyt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
                 values = [getValue(x) for x in values]

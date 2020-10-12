@@ -73,21 +73,21 @@ org
     .org $8000  ; start assembling at $8000
 ```
 
-db
+db / byte / byt
     Output bytes.  Multiple items are separated by commas.
     
 ```
     .db $00, $01, $ff
 ```
 
-dw
+dw / word
     Output words.  Multiple items are separated by commas.
     
 ```
     .dw $8012, $8340
 ```
 
-include
+include / incsrc
     
     Assemble another source file as if it were part of the source.
     
@@ -95,7 +95,7 @@ include
     include foobar.asm
 ```
 
-incbin
+incbin / bin
     
     Add a file to the assembly as raw data.
     
