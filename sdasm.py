@@ -203,96 +203,262 @@ Map(opcode = 'txs', mode = 'Implied', byte = 154, length = 1),
 Map(opcode = 'tya', mode = 'Implied', byte = 152, length = 1),
 ]
 
-
 # Converting to dictionary removes duplicates
 opcodes = list(dict.fromkeys([x.opcode for x in asm]))
 
 implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
 
+def assemble(filename):
+    def isImmediate(v):
+        if v.startswith("#"):
+            return True
+        else:
+            return False
 
-def isImmediate(v):
-    if v.startswith("#"):
-        return True
-    else:
-        return False
+    def isNumber(v):
+        return all([x in "0123456789" for x in str(v)])
 
-def isNumber(v):
-    return all([x in "0123456789" for x in str(v)])
-
-def getValueAndLength(v):
-    v = v.strip()
-    l = False
-    
-    v=v.replace(", ",",").replace(" ,",",")
-    if v.startswith("(") and v.endswith(")"):
-        v = v[1:-1]
-    if v.endswith(",x"):
-        v = v.split(",x")[0]
-    if v.endswith(",y"):
-        v = v.split(",y")[0]
-    if v.startswith("(") and v.endswith(")"):
-        v = v[1:-1]
-    
-    if v=='':
-        return 0,0
-    
-    if v.startswith('-'):
-        label = v.split(' ',1)[0]
-        return [x[1] for x in aLabels if x[0]==label and x[1]<addr][-1], 2
-    if v.startswith('+'):
-        label = v.split(' ',1)[0]
-        try:
-            return [x[1] for x in aLabels if x[0]==label and x[1]>=addr][0], 2
-        except:
+    def getValueAndLength(v):
+        v = v.strip()
+        l = False
+        
+        v=v.replace(", ",",").replace(" ,",",")
+        if v.startswith("(") and v.endswith(")"):
+            v = v[1:-1]
+        if v.endswith(",x"):
+            v = v.split(",x")[0]
+        if v.endswith(",y"):
+            v = v.split(",y")[0]
+        if v.startswith("(") and v.endswith(")"):
+            v = v[1:-1]
+        
+        if v=='':
             return 0,0
-    
-    if '+' in v:
-        v = v.split('+')
-        v = getValue(v[0]) + getValue(v[1])
-        l = 1 if v <=256 else 2
-        return v,l
-    if '-' in v:
-        v = v.split('-')
-        v = getValue(v[0]) - getValue(v[1])
-        l = 1 if v <=256 else 2
-        return v,l
-    
-    if v.startswith("<"):
-        v = getValue(v[1:]) % 0x100
-        l = 1
-        return v,l
-    if v.startswith(">"):
-        v = getValue(v[1:]) >> 8
-        l = 1
-        return v,l
-    if v.startswith("$"):
-        l = 1 if len(v)-1<=2 else 2
-        v = int(v[1:],16)
-    elif v.startswith("%"):
-        l = 1
-        v = int(v[1:],2)
-    elif isNumber(v):
-        l = 1 if int(v,10) <=256 else 2
-        v = int(v,10)
-    elif v.lower() in symbols:
-        v, l = getValueAndLength(symbols[v.lower()])
-    else:
-        v = -1
-        l = -1
-    return v, l
+        
+        if v.startswith('-'):
+            label = v.split(' ',1)[0]
+            return [x[1] for x in aLabels if x[0]==label and x[1]<addr][-1], 2
+        if v.startswith('+'):
+            label = v.split(' ',1)[0]
+            try:
+                return [x[1] for x in aLabels if x[0]==label and x[1]>=addr][0], 2
+            except:
+                return 0,0
+        
+        if '+' in v:
+            v = v.split('+')
+            v = getValue(v[0]) + getValue(v[1])
+            l = 1 if v <=256 else 2
+            return v,l
+        if '-' in v:
+            v = v.split('-')
+            v = getValue(v[0]) - getValue(v[1])
+            l = 1 if v <=256 else 2
+            return v,l
+        
+        if v.startswith("<"):
+            v = getValue(v[1:]) % 0x100
+            l = 1
+            return v,l
+        if v.startswith(">"):
+            v = getValue(v[1:]) >> 8
+            l = 1
+            return v,l
+        if v.startswith("$"):
+            l = 1 if len(v)-1<=2 else 2
+            v = int(v[1:],16)
+        elif v.startswith("%"):
+            l = 1
+            v = int(v[1:],2)
+        elif isNumber(v):
+            l = 1 if int(v,10) <=256 else 2
+            v = int(v,10)
+        elif v.lower() in symbols:
+            v, l = getValueAndLength(symbols[v.lower()])
+        else:
+            v = -1
+            l = -1
+        return v, l
 
-def getValue(v):
-    return getValueAndLength(v)[0]
-def getLength(v):
-    return getValueAndLength(v)[1]
+    def getValue(v):
+        return getValueAndLength(v)[0]
+    def getLength(v):
+        return getValueAndLength(v)[1]
 
-def getOpWithMode(opcode,mode):
-    ops = [x for x in asm if x.opcode==opcode]
-    if mode in [x.mode for x in ops]:
-        return [x for x in ops if x.mode==mode][0]
-    else:
-        return False
+    def getOpWithMode(opcode,mode):
+        ops = [x for x in asm if x.opcode==opcode]
+        if mode in [x.mode for x in ops]:
+            return [x for x in ops if x.mode==mode][0]
+        else:
+            return False
+
+
+    try:
+        file = open(filename, "r")
+    except:
+        print("Error: could not open file.")
+        exit()
+
+
+    # Doing it this way removes the line endings
+    lines = file.read().splitlines()
+    originalLines = lines
+
+    symbols = Map()
+    aLabels = []
+    for passNum in (1,2):
+        lines = originalLines
+        addr = 0
+        currentAddress = addr
+        mode = ""
+        
+        showAddress = False
+        
+        out = []
+        outputText = ''
+        
+        for i in range(10000000):
+        #for i, line in enumerate(lines):
+            if i>len(lines)-1:
+                break
+            line = lines[i]
+            
+            if passNum == 2: print(line)
+            
+            currentAddress = addr
+            originalLine = line
+            line = line.strip().split(';',1)[0].strip()
+            
+            b=[]
+            k = line.split(" ",1)[0].strip().lower()
+            if k.endswith(":"):
+                symbols[k[:-1]] = str(addr)
+                line = line.split(":",1)[1].strip()
+                k = line.split(" ",1)[0].strip()
+            
+            if k!='' and (k=="-"*len(k) or k=="+"*len(k)):
+                if not [k,addr] in aLabels:
+                    aLabels.append([k, addr])
+            
+            # prefix is optional for valid directives
+            if k.startswith(".") and k[1:] in directives:
+                k=k[1:]
+            
+            if k == "print" and passNum==2:
+                v = line.split(" ",1)[1].strip()
+                print(v)
+            
+            if k == "incbin":
+                filename = line.split(" ",1)[1].strip()
+                with open(filename, 'rb') as file:
+                    b = list(file.read())
+                    out = out + b
+            
+            if k == "include":
+                filename = line.split(" ",1)[1].strip()
+                with open(filename, 'r') as file:
+                    newLines = file.read().splitlines()
+                lines = lines[:i]+['']+newLines+lines[i+1:]
+            if k == "error" and passNum==2:
+                v = line.split(" ",1)[1].strip()
+                print("Error: " + v)
+                exit()
+            
+            if k == "org":
+                addr = getValue(line.split(" ",1)[1])
+                currentAddress = addr
+            if k == "db":
+                values = line.split(' ',1)[1].split(",")
+                values = [x.strip() for x in values]
+                b = b + [getValue(x) for x in values]
+                out = out + b
+                addr = addr + len(b)
+            if k == "dw":
+                values = line.split(' ',1)[1].split(",")
+                values = [x.strip() for x in values]
+                values = [getValue(x) for x in values]
+                
+                for value in values:
+                    b = b + [value % 0x100, value>>8]
+                out = out + b
+                addr = addr + len(b)
+            
+            if k.lower() in opcodes:
+                v = "0"
+                if k in implied and k.strip() == line.strip():
+                    op = getOpWithMode(k, "Implied")
+                elif k in accumulator and k.strip() == line.strip():
+                    op = getOpWithMode(k, "Accumulator")
+                else:
+                    op = False
+                    ops = [x for x in asm if x.opcode==k]
+                    
+                    v = line.split(" ",1)[1].strip()
+                    
+                    if k == "jmp" and v.startswith("("):
+                        op = getOpWithMode(k, 'Indirect')
+                    elif v.endswith('),y'):
+                        op = getOpWithMode(k, '(Indirect), Y')
+                    elif v.endswith(',x)'):
+                        op = getOpWithMode(k, '(Indirect, X)')
+                    elif v.endswith(',x'):
+                        v = v.split(',x',1)[0]
+                        if getLength(v)==1 and getOpWithMode(k, 'Zero Page, X'):
+                            op = getOpWithMode(k, 'Zero Page, X')
+                        elif getOpWithMode(k, 'Absolute, X'):
+                            op = getOpWithMode(k, 'Absolute, X')
+                    elif v.endswith(',y'):
+                        v = v.split(',y',1)[0]
+                        if getLength(v)==1 and getOpWithMode(k, 'Zero Page, Y'):
+                            op = getOpWithMode(k, 'Zero Page, Y')
+                        elif getOpWithMode(k, 'Absolute, Y'):
+                            op = getOpWithMode(k, 'Absolute, Y')
+                    elif v.startswith("#"):
+                        v = v[1:]
+                        op = getOpWithMode(k, 'Immediate')
+                    else:
+                        if getLength(v)==1 and getOpWithMode(k, 'Zero Page'):
+                            op = getOpWithMode(k, "Zero Page")
+                        elif getOpWithMode(k, "Absolute"):
+                            op = getOpWithMode(k, "Absolute")
+                        elif getOpWithMode(k, "Relative"):
+                            op = getOpWithMode(k, "Relative")
+                if op:
+                    addr = addr + op.length
+                    
+                    if op.mode == 'Relative':
+                        if addr>getValue(v):
+                            v = str(0x100 - (addr - getValue(v)))
+                        else:
+                            v = str(getValue(v) - addr)
+                    b = [op.byte]
+                    if op.length == 2:
+                        b.append(getValue(v) % 0x100)
+                    elif op.length == 3:
+                        b.append(getValue(v) % 0x100)
+                        b.append(math.floor(getValue(v)/0x100))
+                    out = out + b
+            if "=" in line:
+                v = line.split("=",1)[1].strip()
+                symbols[k] = v
+            
+            
+            if len(b)>0:
+                showAddress = True
+            
+            if passNum == 2:
+                if showAddress:
+                    outputText+="{:05X} {:26s}{}\n".format(currentAddress, ' '.join(['{:02X}'.format(x) for x in b]), originalLine)
+                else:
+                    outputText+="      {:26s}{}\n".format(' '.join(['{:02X}'.format(x) for x in b]), originalLine)
+            if k==".org": showAddress = True
+
+    with open('output.txt', 'w') as file:
+        print(outputText, file=file)
+
+    with open("output.bin", "wb") as file:
+        file.write(bytes(out))
 
 
 if len(sys.argv) <2:
@@ -301,141 +467,4 @@ if len(sys.argv) <2:
 
 filename = sys.argv[1]
 
-try:
-    file = open(filename, "r")
-except:
-    print("Error: could not open file.")
-    exit()
-
-# Doing it this way removes the line endings
-lines = file.read().splitlines()
-
-symbols = Map()
-aLabels = []
-for passNum in (1,2):
-
-    addr = 0
-    currentAddress = addr
-    mode = ""
-    
-    showAddress = False
-    
-    out = []
-    outputText = ''
-
-    for line in lines:
-        currentAddress = addr
-        originalLine = line
-        line = line.strip().split(';',1)[0].strip()
-        
-        b=[]
-        k = line.split(" ",1)[0].strip().lower()
-        if k.endswith(":"):
-            symbols[k[:-1]] = str(addr)
-            line = line.split(":",1)[1].strip()
-            k = line.split(" ",1)[0].strip()
-        
-        if k!='' and (k=="-"*len(k) or k=="+"*len(k)):
-            if not [k,addr] in aLabels:
-                aLabels.append([k, addr])
-        
-        # prefix is optional for valid directives
-        if k.startswith(".") and k[1:] in directives:
-            k=k[1:]
-        
-        if k == "org":
-            addr = getValue(line.split(" ",1)[1])
-            currentAddress = addr
-        if k == "db":
-            values = line.split(' ',1)[1].split(",")
-            values = [x.strip() for x in values]
-            b = b + [getValue(x) for x in values]
-            out = out + b
-            addr = addr + len(b)
-        if k == "dw":
-            values = line.split(' ',1)[1].split(",")
-            values = [x.strip() for x in values]
-            values = [getValue(x) for x in values]
-            
-            for value in values:
-                b = b + [value % 0x100, value>>8]
-            out = out + b
-            addr = addr + len(b)
-        
-        if k.lower() in opcodes:
-            v = "0"
-            if k in implied and k.strip() == line.strip():
-                op = getOpWithMode(k, "Implied")
-            elif k in accumulator and k.strip() == line.strip():
-                op = getOpWithMode(k, "Accumulator")
-            else:
-                op = False
-                ops = [x for x in asm if x.opcode==k]
-                
-                v = line.split(" ",1)[1].strip()
-                
-                if k == "jmp" and v.startswith("("):
-                    op = getOpWithMode(k, 'Indirect')
-                elif v.endswith('),y'):
-                    op = getOpWithMode(k, '(Indirect), Y')
-                elif v.endswith(',x)'):
-                    op = getOpWithMode(k, '(Indirect, X)')
-                elif v.endswith(',x'):
-                    v = v.split(',x',1)[0]
-                    if getLength(v)==1 and getOpWithMode(k, 'Zero Page, X'):
-                        op = getOpWithMode(k, 'Zero Page, X')
-                    elif getOpWithMode(k, 'Absolute, X'):
-                        op = getOpWithMode(k, 'Absolute, X')
-                elif v.endswith(',y'):
-                    v = v.split(',y',1)[0]
-                    if getLength(v)==1 and getOpWithMode(k, 'Zero Page, Y'):
-                        op = getOpWithMode(k, 'Zero Page, Y')
-                    elif getOpWithMode(k, 'Absolute, Y'):
-                        op = getOpWithMode(k, 'Absolute, Y')
-                elif v.startswith("#"):
-                    v = v[1:]
-                    op = getOpWithMode(k, 'Immediate')
-                else:
-                    if getLength(v)==1 and getOpWithMode(k, 'Zero Page'):
-                        op = getOpWithMode(k, "Zero Page")
-                    elif getOpWithMode(k, "Absolute"):
-                        op = getOpWithMode(k, "Absolute")
-                    elif getOpWithMode(k, "Relative"):
-                        op = getOpWithMode(k, "Relative")
-            if op:
-                addr = addr + op.length
-                
-                if op.mode == 'Relative':
-                    if addr>getValue(v):
-                        v = str(0x100 - (addr - getValue(v)))
-                    else:
-                        v = str(getValue(v) - addr)
-                b = [op.byte]
-                if op.length == 2:
-                    b.append(getValue(v) % 0x100)
-                elif op.length == 3:
-                    b.append(getValue(v) % 0x100)
-                    b.append(math.floor(getValue(v)/0x100))
-                out = out + b
-        if "=" in line:
-            v = line.split("=",1)[1].strip()
-            symbols[k] = v
-        
-        
-        if len(b)>0:
-            showAddress = True
-        
-        if passNum == 2:
-            if showAddress:
-                outputText+="{:05X} {:26s}{}\n".format(currentAddress, ' '.join(['{:02X}'.format(x) for x in b]), originalLine)
-            else:
-                outputText+="      {:26s}{}\n".format(' '.join(['{:02X}'.format(x) for x in b]), originalLine)
-        if k==".org": showAddress = True
-
-with open('output.txt', 'w') as file:
-    print(outputText, file=file)
-
-with open("output.bin", "wb") as file:
-    file.write(bytes(out))
-
-
+assemble(filename)

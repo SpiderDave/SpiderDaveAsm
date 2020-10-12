@@ -87,4 +87,20 @@ dw
     .dw $8012, $8340
 ```
 
+include
+    
+    Assemble another source file as if it were part of the source.
+    
+```
+    include foobar.asm
+```
 
+incbin
+    
+    Add a file to the assembly as raw data.
+    
+```
+    include chr00.chr
+```
+    
+    
