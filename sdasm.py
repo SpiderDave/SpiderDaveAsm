@@ -50,7 +50,7 @@ directives = [
 ]
 
 directives = directives + [
-    'byt'
+    'byt', 'includeall', 'warning'
 ]
 
 asm=[
@@ -363,14 +363,26 @@ def assemble(filename):
                 with open(filename, 'r') as file:
                     newLines = file.read().splitlines()
                 lines = lines[:i]+['']+newLines+lines[i+1:]
+            if k == "includeall":
+                folder = line.split(" ",1)[1].strip()
+                files = [x for x in os.listdir(folder) if os.path.splitext(x.lower())[1] in ['.asm']]
+                files = [x for x in files if not x.startswith('_')]
+                lines = lines[:i]+['']+['include {}/{}'.format(folder, x) for x in files]+lines[i+1:]
+            if k == "warning" and passNum==2:
+                v = line.split(" ",1)[1].strip()
+                print("warning: " + v)
             if k == "error" and passNum==2:
                 v = line.split(" ",1)[1].strip()
                 print("Error: " + v)
                 exit()
-            
             if k == "org":
                 addr = getValue(line.split(" ",1)[1])
                 currentAddress = addr
+            if k == "hex":
+                data = line.split(' ',1)[1]
+                b = b + list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
+                out = out + b
+                addr = addr + len(b)
             if k == "db" or k=="byte" or k == 'byt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]

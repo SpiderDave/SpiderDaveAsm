@@ -14,7 +14,7 @@ Currently, creates output.txt and output.bin.
 * Supports all (official) 6502 opcodes
 * Anonymous labels
 
-## Syntax ##
+# Syntax #
 
 Opcodes:
     Standard 6502 ocodes are supported.  Opcodes are case-insensitive.
@@ -26,7 +26,7 @@ Comments:
     ; This is a comment
 ```
     
-Labels:
+## Labels ##
     Labels must end in a colon.  Code can be placed on the same line as labels.
     Anonymous labels are 1 or more "-" or "+" characters.  These labels will only
     search backwards for "-" and forwards for "+".
@@ -40,7 +40,7 @@ Labels:
     bpl -
 ```
 
-Numbers:
+## Numbers ##
     Hexadecimal numbers start with "$".  Binary numbers start with "%".
     
 ```
@@ -49,7 +49,7 @@ Numbers:
     sta $4002
 ```
     
-Operators:
+## Operators ##
 | op | description                       |
 |:--:|-----------------------------------|
 |  + | addition                          |
@@ -71,21 +71,33 @@ org
     Set the address.
     
 ```
-    .org $8000  ; start assembling at $8000
+    org $8000  ; start assembling at $8000
 ```
 
 db / byte / byt
+    
     Output bytes.  Multiple items are separated by commas.
     
 ```
-    .db $00, $01, $ff
+    db $00, $01, $ff
 ```
 
 dw / word
+    
     Output words.  Multiple items are separated by commas.
     
 ```
-    .dw $8012, $8340
+    dw $8012, $8340
+```
+
+hex
+
+    Compact way of laying out a table of hex values.  Only raw hex values
+    are allowed, no expressions.  Spaces can be used to separate numbers.
+
+```
+    hex 456789ABCDEF  ;equivalent to db $45,$67,$89,$AB,$CD,$EF
+    hex 0 1 23 4567   ;equivalent to db $00,$01,$23,$45,$67
 ```
 
 include / incsrc
@@ -96,6 +108,14 @@ include / incsrc
     include foobar.asm
 ```
 
+includeall
+    
+    Include all .asm files in a folder.  Files starting with "_" will be ignored.
+    
+```
+    include code/macros
+```
+
 incbin / bin
     
     Add a file to the assembly as raw data.
@@ -104,4 +124,26 @@ incbin / bin
     include chr00.chr
 ```
     
+print
     
+    Print a message
+    
+```
+    print Hello World!
+```
+
+warning
+    
+    Print a warning message.  The message will start with "Warning: ".
+    
+```
+    warning missing data!
+```
+
+error
+    
+    Print an error message and stops the assembler.  The message will start with "Error: ".
+    
+```
+    error file not found!
+```
