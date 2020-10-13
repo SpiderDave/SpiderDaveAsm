@@ -362,6 +362,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         showAddress = False
         out = []
         outputText = ''
+        startAddress = False
         
         for i in range(10000000):
             if i>len(lines)-1:
@@ -431,9 +432,19 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 print("Error: " + v)
                 exit()
             
-            if k == "org":
+            if k == "base":
                 addr = getValue(line.split(" ",1)[1])
+                if startAddress == False:
+                    startAddress = addr
                 currentAddress = addr
+            
+            if k == "org":
+                if startAddress==False:
+                    addr = getValue(line.split(" ",1)[1])
+                    currentAddress = addr
+                    startAddress = addr
+                else:
+                    k = 'pad'
             
             if k == "pad":
                 data = line.split(' ',1)[1]

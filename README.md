@@ -93,27 +93,42 @@ NOTE: order of operations is wrong, and () is not supported yet.
 ```
     
 org
-    Set the address.
+    
+    Set the starting address if it hasn't been assigned yet, otherwise
+    org functions like pad.
     
 ```
     org $8000  ; start assembling at $8000
+    .
+    .
+    .
+    org $fffa, $80 ;equivalent to PAD $fffa, $80
+```
+
+base
+
+        Set the program address.  This is useful for relocatable code,
+        multiple code banks, etc.
+    
+```
+    base $8000
 ```
 
 pad
-
+    
     Fill memory from the current address to a specified address.  A fill
     value may also be specified.
-
+    
 ```
     pad $FFFA
     pad $FFFA, $ea
 ```
 
 align
-
+    
     Fill memory from the current address to specified byte boundary.  A fill
     value may also be specified.
-
+    
 ```
     align 256
     align 256, $ea
