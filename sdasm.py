@@ -263,22 +263,33 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             except:
                 return 0,0
         
-        
         if v.startswith('"') and v.endswith('"'):
             v = list(bytes(v[1:-1], 'utf-8'))
             l=len(v)
-            #l = 1
-            #v = v[0]
             return v, l
         # ToDo: tokenize, allow (), implement proper order of operations.
         if '+' in v:
             v = v.split('+')
-            v = getValue(v[0]) + getValue(v[1])
+            left, right = getValue(v[0]), getValue(v[1])
+            if type(left)==type(right):
+                v = left + right
+            elif type(left)==list:
+                v = [x+right for x in left]
+                return v,len(v)
+            else:
+                return -1, 1
             l = 1 if v <=256 else 2
             return v,l
         if '-' in v:
             v = v.split('-')
-            v = getValue(v[0]) - getValue(v[1])
+            left, right = getValue(v[0]), getValue(v[1])
+            if type(left)==type(right):
+                v = left - right
+            elif type(left)==list:
+                v = [x-right for x in left]
+                return v,len(v)
+            else:
+                return -1, 1
             l = 1 if v <=256 else 2
             return v,l
         if '*' in v:
@@ -426,7 +437,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 currentAddress = addr
             
             if k == "pad":
-                
                 data = line.split(' ',1)[1]
                 
                 fillValue = 0xff
@@ -435,6 +445,17 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 a = getValue(data.split(',')[0])
                 
                 b = b + ([fillValue] * (a-currentAddress))
+                out = out + b
+                addr = addr + len(b)
+            if k == "align":
+                data = line.split(' ',1)[1]
+                
+                fillValue = 0xff
+                if ',' in data:
+                    fillValue = getValue(data.split(',')[1])
+                a = getValue(data.split(',')[0])
+                
+                b = b + ([fillValue] * ((a-currentAddress%a)%a))
                 out = out + b
                 addr = addr + len(b)
             if k == "hex":

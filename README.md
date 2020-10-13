@@ -56,7 +56,19 @@ Comments:
     ora #%00001100
     sta $4002
 ```
+
+## Strings ##
     
+    String values are partially supported.
+
+```
+    foo = "bar"             ; works
+    .db foo, "ABC", $00     ; works
+    lda "A"                 ; does not work
+    .db "ABC"+1             ; works (adds 1 to each character)
+    .db "A"+"A"             ; does not work
+```
+
 ## Operators ##
 
 NOTE: order of operations is wrong, and () is not supported yet.
@@ -94,7 +106,17 @@ pad
 
 ```
     pad $FFFA
-    pad $FFFA,$EA
+    pad $FFFA, $ea
+```
+
+align
+
+    Fill memory from the current address to specified byte boundary.  A fill
+    value may also be specified.
+
+```
+    align 256
+    align 256, $ea
 ```
 
 db / byte / byt
