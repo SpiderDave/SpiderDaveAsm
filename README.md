@@ -16,14 +16,22 @@ Currently, creates output.txt and output.bin.
 
 # Syntax #
 
+Configuration:
+    After running once, a config.ini will be generated.  Some syntax may be changed with configuration.
+
 Opcodes:
     Standard 6502 ocodes are supported.  Opcodes are case-insensitive.
 
 Comments:
-    Comments start with a semicolon, and can also be used at the end of a line.
+    Comments start with a semicolon or "//", and can also be used at the end of a line.
+    Block-level comments are enclosed in "/*" "*/" and may be nested.
     
 ```
     ; This is a comment
+    // This is also a comment
+    /*
+        This is a block level comment
+    */
 ```
     
 ## Labels ##

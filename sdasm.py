@@ -5,6 +5,8 @@ ToDo:
 
 
 import math, os, sys
+from include import Cfg
+
 
 class Map(dict):
     """
@@ -213,7 +215,19 @@ opcodes = list(dict.fromkeys([x.opcode for x in asm]))
 implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
 
-def assemble(filename):
+def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt',):
+    def makeList(item):
+        if type(item)!=list:
+            return [item]
+        else:
+            return item
+    
+    commentSep = makeList(cfg.getValue('main', 'comment'))
+    commentBlockOpen = makeList(cfg.getValue('main', 'commentBlockOpen'))
+    commentBlockClose = makeList(cfg.getValue('main', 'commentBlockClose'))
+    
+    #.split(',').strip()
+    
     def isImmediate(v):
         if v.startswith("#"):
             return True
@@ -311,6 +325,8 @@ def assemble(filename):
 
     symbols = Map()
     aLabels = []
+    blockComment = 0
+    
     for passNum in (1,2):
         lines = originalLines
         addr = 0
@@ -327,11 +343,25 @@ def assemble(filename):
                 break
             line = lines[i]
             
-            if passNum == 2: print(line)
+            #if passNum == 2: print(line)
             
             currentAddress = addr
             originalLine = line
-            line = line.strip().split(';',1)[0].strip()
+            
+            for sep in commentSep:
+                line = line.strip().split(sep,1)[0].strip()
+            
+            for sep in commentBlockOpen:
+                if sep in line:
+                    line = line.strip().split(sep,1)[0].strip()
+                    blockComment+=1
+            for sep in commentBlockClose:
+                if sep in line:
+                    line = line.strip().split(sep,1)[1].strip()
+                    blockComment-=1
+            if blockComment>0:
+                line = ''
+                pass
             
             b=[]
             k = line.split(" ",1)[0].strip().lower()
@@ -476,18 +506,39 @@ def assemble(filename):
                 showAddress = True
             
             if passNum == 2:
+                nBytes = cfg.getValue('main', 'list_nBytes')
+                
                 if showAddress:
-                    outputText+="{:05X} {:26s}{}\n".format(currentAddress, ' '.join(['{:02X}'.format(x) for x in b]), originalLine)
+                    outputText+="{:05X} ".format(currentAddress)
                 else:
-                    outputText+="      {:26s}{}\n".format(' '.join(['{:02X}'.format(x) for x in b]), originalLine)
+                    outputText+=' '*6
+                
+                if nBytes == 0:
+                    outputText+="{}\n".format(originalLine)
+                else:
+                    listBytes = ' '.join(['{:02X}'.format(x) for x in b[:nBytes]]).ljust(3*nBytes-1) + ('..' if len(b)>nBytes else '  ')
+                    outputText+="{} {}\n".format(listBytes, originalLine)
+                
             if k==".org": showAddress = True
 
-    with open('output.txt', 'w') as file:
+    with open(listFilename, 'w') as file:
         print(outputText, file=file)
 
-    with open("output.bin", "wb") as file:
+    with open(outputFilename, "wb") as file:
         file.write(bytes(out))
 
+
+# create our config parser
+cfg = Cfg("config.ini")
+
+# read config file if it exists
+cfg.load()
+
+# number of bytes to show when generating list
+cfg.setDefault('main', 'list_nBytes', 8)
+cfg.setDefault('main', 'comment', ';,//')
+cfg.setDefault('main', 'commentBlockOpen', '/*')
+cfg.setDefault('main', 'commentBlockClose', '*/')
 
 if len(sys.argv) <2:
     print("Error: no file specified.")
@@ -496,3 +547,5 @@ if len(sys.argv) <2:
 filename = sys.argv[1]
 
 assemble(filename)
+
+cfg.save()
