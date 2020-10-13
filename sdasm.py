@@ -221,12 +221,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         else:
             return item
     
-    commentSep = makeList(cfg.getValue('main', 'comment'))
-    commentBlockOpen = makeList(cfg.getValue('main', 'commentBlockOpen'))
-    commentBlockClose = makeList(cfg.getValue('main', 'commentBlockClose'))
-    
-    #.split(',').strip()
-    
     def isImmediate(v):
         if v.startswith("#"):
             return True
@@ -339,6 +333,11 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         else:
             return False
 
+    commentSep = makeList(cfg.getValue('main', 'comment'))
+    commentBlockOpen = makeList(cfg.getValue('main', 'commentBlockOpen'))
+    commentBlockClose = makeList(cfg.getValue('main', 'commentBlockClose'))
+    fillValue = getValue(cfg.getValue('main', 'fillValue'))
+
 
     try:
         file = open(filename, "r")
@@ -439,23 +438,23 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             if k == "pad":
                 data = line.split(' ',1)[1]
                 
-                fillValue = 0xff
+                fv = fillValue
                 if ',' in data:
-                    fillValue = getValue(data.split(',')[1])
+                    fv = getValue(data.split(',')[1])
                 a = getValue(data.split(',')[0])
                 
-                b = b + ([fillValue] * (a-currentAddress))
+                b = b + ([fv] * (a-currentAddress))
                 out = out + b
                 addr = addr + len(b)
             if k == "align":
                 data = line.split(' ',1)[1]
                 
-                fillValue = 0xff
+                fv = fillValue
                 if ',' in data:
-                    fillValue = getValue(data.split(',')[1])
+                    fv = getValue(data.split(',')[1])
                 a = getValue(data.split(',')[0])
                 
-                b = b + ([fillValue] * ((a-currentAddress%a)%a))
+                b = b + ([fv] * ((a-currentAddress%a)%a))
                 out = out + b
                 addr = addr + len(b)
             if k == "hex":
@@ -581,6 +580,7 @@ cfg.setDefault('main', 'comment', ';,//')
 cfg.setDefault('main', 'commentBlockOpen', '/*')
 cfg.setDefault('main', 'commentBlockClose', '*/')
 cfg.setDefault('main', 'nestedComments', True)
+cfg.setDefault('main', 'fillValue', '$ff')
 
 if len(sys.argv) <2:
     print("Error: no file specified.")

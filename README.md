@@ -119,6 +119,12 @@ align
     align 256, $ea
 ```
 
+fillvalue
+
+        Change the default filler for pad, align, etc.
+
+                fillvalue $ff
+
 db / byte / byt
     
     Output bytes.  Multiple items are separated by commas.
