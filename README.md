@@ -74,6 +74,16 @@ org
     org $8000  ; start assembling at $8000
 ```
 
+pad
+
+    Fill memory from the current address to a specified address.  A fill
+    value may also be specified.
+
+```
+    pad $FFFA
+    pad $FFFA,$EA
+```
+
 db / byte / byt
     
     Output bytes.  Multiple items are separated by commas.

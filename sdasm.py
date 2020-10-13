@@ -348,16 +348,11 @@ def assemble(filename):
             if k.startswith(".") and k[1:] in directives:
                 k=k[1:]
             
-            if k == "print" and passNum==2:
-                v = line.split(" ",1)[1].strip()
-                print(v)
-            
             if k == "incbin" or k == "bin":
                 filename = line.split(" ",1)[1].strip()
                 with open(filename, 'rb') as file:
                     b = list(file.read())
                     out = out + b
-            
             if k == "include" or k=="incsrc":
                 filename = line.split(" ",1)[1].strip()
                 with open(filename, 'r') as file:
@@ -368,6 +363,10 @@ def assemble(filename):
                 files = [x for x in os.listdir(folder) if os.path.splitext(x.lower())[1] in ['.asm']]
                 files = [x for x in files if not x.startswith('_')]
                 lines = lines[:i]+['']+['include {}/{}'.format(folder, x) for x in files]+lines[i+1:]
+            
+            if k == "print" and passNum==2:
+                v = line.split(" ",1)[1].strip()
+                print(v)
             if k == "warning" and passNum==2:
                 v = line.split(" ",1)[1].strip()
                 print("warning: " + v)
@@ -375,9 +374,23 @@ def assemble(filename):
                 v = line.split(" ",1)[1].strip()
                 print("Error: " + v)
                 exit()
+            
             if k == "org":
                 addr = getValue(line.split(" ",1)[1])
                 currentAddress = addr
+            
+            if k == "pad":
+                
+                data = line.split(' ',1)[1]
+                
+                fillValue = 0xff
+                if ',' in data:
+                    fillValue = getValue(data.split(',')[1])
+                a = getValue(data.split(',')[0])
+                
+                b = b + ([fillValue] * (a-currentAddress))
+                out = out + b
+                addr = addr + len(b)
             if k == "hex":
                 data = line.split(' ',1)[1]
                 b = b + list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
