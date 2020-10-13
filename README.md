@@ -57,6 +57,10 @@ Comments:
     sta $4002
 ```
 
+## Other Symbols ##
+    
+    A "$" by itself may be used to get or set the current address.
+    
 ## Strings ##
     
     String values are partially supported.

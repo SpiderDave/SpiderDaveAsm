@@ -1,6 +1,15 @@
 """
 ToDo:
-    lots.
+    * allow strings in instructions:
+        lda "A"-$4b
+    * tokenize values better, especially strings
+    * create large test .asm
+    * macros
+    * if,else,endif,ifdef
+    * iffileexist/iffile
+    * text mapping
+    * local labels
+    * $ pc
 """
 
 
@@ -41,17 +50,22 @@ class Map(dict):
         del self.__dict__[key]
 
 
-directives = [
-    'if', 'elseif', 'else', 'endif', 'ifdef', 'ifndef', 'equ', 'org', 'base', 'pad',
-    'include', 'incsrc', 'incbin', 'bin', 'hex', 'word', 'dw', 'dcw', 'dc.w', 'byte',
-    'db', 'dcb', 'dc.b', 'dsw', 'ds.w', 'dsb', 'ds.b', 'align', 'macro', 'rept',
-    'endm', 'endr', 'enum', 'ende', 'ignorenl', 'endinl', 'fillvalue', 'dl', 'dh',
-    'error', 'inesprg', 'ineschr', 'inesmir', 'inesmap', 'nes2chrram', 'nes2prgram',
-    'nes2sub', 'nes2tv', 'nes2vs', 'nes2bram', 'nes2chrbram', 'unstable', 'hunstable'
-]
+#directives = [
+#    'if', 'elseif', 'else', 'endif', 'ifdef', 'ifndef', 'equ', 'org', 'base', 'pad',
+#    'include', 'incsrc', 'incbin', 'bin', 'hex', 'word', 'dw', 'dcw', 'dc.w', 'byte',
+#    'db', 'dcb', 'dc.b', 'dsw', 'ds.w', 'dsb', 'ds.b', 'align', 'macro', 'rept',
+#    'endm', 'endr', 'enum', 'ende', 'ignorenl', 'endinl', 'fillvalue', 'dl', 'dh',
+#    'error', 'inesprg', 'ineschr', 'inesmir', 'inesmap', 'nes2chrram', 'nes2prgram',
+#    'nes2sub', 'nes2tv', 'nes2vs', 'nes2bram', 'nes2chrbram', 'unstable', 'hunstable'
+#]
 
-directives = directives + [
-    'byt', 'includeall', 'warning'
+directives = [
+    'org','base','pad','align',
+    'include','incsrc','includeall','incbin','bin',
+    'db','dw','byte','byt','word','hex',
+    'enum','ende','endenum','fillvalue',
+    'print','warning','error',
+    'setincludefolder',
 ]
 
 asm=[
@@ -305,7 +319,12 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             v = getValue(v[1:]) >> 8
             l = 1
             return v,l
-        if v.startswith("$"):
+        
+        if v == '$' or v.lower() == 'pc':
+            v = addr
+            l = 1 if v <=256 else 2
+            l=2
+        elif v.startswith("$"):
             l = 1 if len(v)-1<=2 else 2
             v = int(v[1:],16)
         elif v.startswith("%"):
@@ -367,13 +386,14 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         out = []
         outputText = ''
         startAddress = False
+        currentFolder = ''
         
         for i in range(10000000):
             if i>len(lines)-1:
                 break
             line = lines[i]
             
-            if debug and (passNum == 2): print(line)
+            hide = False
             
             currentAddress = addr
             originalLine = line
@@ -409,15 +429,31 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             if k.startswith(".") and k[1:] in directives:
                 k=k[1:]
             
+            # hidden internally used directive used with include paths
+            if k == "setincludefolder":
+                currentFolder = (line.split(" ",1)+[''])[1].strip()
+                hide = True
+            
             if k == "incbin" or k == "bin":
                 filename = line.split(" ",1)[1].strip()
+                filename = os.path.join(currentFolder,filename)
+                
                 with open(filename, 'rb') as file:
                     b = list(file.read())
-                    out = out + b
+                    #out = out + b
+                
+                lines = lines[:i]+['']+['setincludefolder '+currentFolder]+newLines+lines[i+1:]
             if k == "include" or k=="incsrc":
                 filename = line.split(" ",1)[1].strip()
+                filename = os.path.join(currentFolder,filename)
+                
                 with open(filename, 'r') as file:
                     newLines = file.read().splitlines()
+                folder = os.path.split(filename)[0]
+                
+                newLines = ['setincludefolder '+folder]+newLines+['setincludefolder '+currentFolder]
+                currentFolder = folder
+                
                 lines = lines[:i]+['']+newLines+lines[i+1:]
             if k == 'includeall':
                 folder = line.split(" ",1)[1].strip()
@@ -572,8 +608,15 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
 #                    if noOutput: b = []
 #                    out = out + b
             if "=" in line:
+                k = line.split("=",1)[0].strip()
                 v = line.split("=",1)[1].strip()
-                symbols[k] = v
+                if k == '$':
+                    addr = getValue(v)
+                    if startAddress == False:
+                        startAddress = addr
+                    currentAddress = addr
+                else:
+                    symbols[k] = v
             
             if len(b)>0:
                 showAddress = True
@@ -581,7 +624,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     out = out + b
                 addr = addr + len(b)
             
-            if passNum == 2:
+            if passNum == 2 and not hide:
+                if debug: print(originalLine)
                 nBytes = cfg.getValue('main', 'list_nBytes')
                 
                 if showAddress:
