@@ -337,6 +337,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
     commentBlockOpen = makeList(cfg.getValue('main', 'commentBlockOpen'))
     commentBlockClose = makeList(cfg.getValue('main', 'commentBlockClose'))
     fillValue = getValue(cfg.getValue('main', 'fillValue'))
+    debug = cfg.isTrue(cfg.getValue('main', 'debug'))
 
 
     try:
@@ -357,6 +358,9 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
     for passNum in (1,2):
         lines = originalLines
         addr = 0
+        oldAddr = 0
+        
+        noOutput = False
         currentAddress = addr
         mode = ""
         showAddress = False
@@ -369,7 +373,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 break
             line = lines[i]
             
-            if passNum == 2: print(line)
+            if debug and (passNum == 2): print(line)
             
             currentAddress = addr
             originalLine = line
@@ -415,32 +419,42 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 with open(filename, 'r') as file:
                     newLines = file.read().splitlines()
                 lines = lines[:i]+['']+newLines+lines[i+1:]
-            if k == "includeall":
+            if k == 'includeall':
                 folder = line.split(" ",1)[1].strip()
                 files = [x for x in os.listdir(folder) if os.path.splitext(x.lower())[1] in ['.asm']]
                 files = [x for x in files if not x.startswith('_')]
                 lines = lines[:i]+['']+['include {}/{}'.format(folder, x) for x in files]+lines[i+1:]
             
-            if k == "print" and passNum==2:
+            if k == 'print' and passNum==2:
                 v = line.split(" ",1)[1].strip()
                 print(v)
-            if k == "warning" and passNum==2:
+            if k == 'warning' and passNum==2:
                 v = line.split(" ",1)[1].strip()
-                print("warning: " + v)
-            if k == "error" and passNum==2:
+                print('warning: ' + v)
+            if k == 'error' and passNum==2:
                 v = line.split(" ",1)[1].strip()
-                print("Error: " + v)
+                print('Error: ' + v)
                 exit()
             
-            if k == "base":
-                addr = getValue(line.split(" ",1)[1])
+            if k == 'enum':
+                oldAddr = addr
+                addr = 0x200
+                currentAddress = addr
+                noOutput = True
+            if k == 'ende' or k == 'endenum':
+                addr = oldAddr
+                currentAddress = addr
+                noOutput = False
+            
+            if k == 'base':
+                addr = getValue(line.split(' ',1)[1])
                 if startAddress == False:
                     startAddress = addr
                 currentAddress = addr
             
-            if k == "org":
+            if k == 'org':
                 if startAddress==False:
-                    addr = getValue(line.split(" ",1)[1])
+                    addr = getValue(line.split(' ',1)[1])
                     currentAddress = addr
                     startAddress = addr
                 else:
@@ -454,9 +468,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     fv = getValue(data.split(',')[1])
                 a = getValue(data.split(',')[0])
                 
+                #if noOutput: b = []
                 b = b + ([fv] * (a-currentAddress))
-                out = out + b
-                addr = addr + len(b)
+                #out = out + b
+                #addr = addr + len(b)
             if k == "align":
                 data = line.split(' ',1)[1]
                 
@@ -466,13 +481,17 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 a = getValue(data.split(',')[0])
                 
                 b = b + ([fv] * ((a-currentAddress%a)%a))
-                out = out + b
-                addr = addr + len(b)
+                
+                #if noOutput: b = []
+                #out = out + b
+                #addr = addr + len(b)
             if k == "hex":
                 data = line.split(' ',1)[1]
                 b = b + list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
-                out = out + b
-                addr = addr + len(b)
+                
+#                if noOutput: b = []
+#                out = out + b
+#                addr = addr + len(b)
             if k == "db" or k=="byte" or k == 'byt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
@@ -481,8 +500,9 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 for v in [getValue(x) for x in values]:
                     b = b + makeList(v)
                 
-                out = out + b
-                addr = addr + len(b)
+#                if noOutput: b = []
+#                out = out + b
+#                addr = addr + len(b)
             if k == "dw" or k=="word" or k=='dbyt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
@@ -490,8 +510,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 
                 for value in values:
                     b = b + [value % 0x100, value>>8]
-                out = out + b
-                addr = addr + len(b)
+                
+#                if noOutput: b = []
+#                out = out + b
+#                addr = addr + len(b)
             
             if k.lower() in opcodes:
                 v = "0"
@@ -534,7 +556,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                         elif getOpWithMode(k, "Relative"):
                             op = getOpWithMode(k, "Relative")
                 if op:
-                    addr = addr + op.length
+                    #addr = addr + op.length
                     
                     if op.mode == 'Relative':
                         if addr>getValue(v):
@@ -547,14 +569,17 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     elif op.length == 3:
                         b.append(getValue(v) % 0x100)
                         b.append(math.floor(getValue(v)/0x100))
-                    out = out + b
+#                    if noOutput: b = []
+#                    out = out + b
             if "=" in line:
                 v = line.split("=",1)[1].strip()
                 symbols[k] = v
             
-            
             if len(b)>0:
                 showAddress = True
+                if noOutput==False:
+                    out = out + b
+                addr = addr + len(b)
             
             if passNum == 2:
                 nBytes = cfg.getValue('main', 'list_nBytes')
@@ -567,7 +592,11 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 if nBytes == 0:
                     outputText+="{}\n".format(originalLine)
                 else:
-                    listBytes = ' '.join(['{:02X}'.format(x) for x in b[:nBytes]]).ljust(3*nBytes-1) + ('..' if len(b)>nBytes else '  ')
+                    listBytes = False
+                    if noOutput:
+                        listBytes = ' '*(3*nBytes+1)
+                    else:
+                        listBytes = ' '.join(['{:02X}'.format(x) for x in b[:nBytes]]).ljust(3*nBytes-1) + ('..' if len(b)>nBytes else '  ')
                     outputText+="{} {}\n".format(listBytes, originalLine)
                 
             if k==".org": showAddress = True
@@ -592,6 +621,7 @@ cfg.setDefault('main', 'commentBlockOpen', '/*')
 cfg.setDefault('main', 'commentBlockClose', '*/')
 cfg.setDefault('main', 'nestedComments', True)
 cfg.setDefault('main', 'fillValue', '$ff')
+cfg.setDefault('main', 'debug', False)
 
 if len(sys.argv) <2:
     print("Error: no file specified.")

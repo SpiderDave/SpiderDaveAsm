@@ -136,9 +136,24 @@ align
 
 fillvalue
 
-        Change the default filler for pad, align, etc.
+    Change the default filler for pad, align, etc.
+    
+```
+    fillvalue $ff
+```
 
-                fillvalue $ff
+enum
+ende
+
+    Reassign PC and suppress assembly output.  Useful for defining
+    variables in RAM.
+    
+```
+    enum $200
+    foo:    db 0
+    foo2:   db 0
+    enum
+```
 
 db / byte / byt
     
