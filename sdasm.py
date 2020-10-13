@@ -7,7 +7,6 @@ ToDo:
 import math, os, sys
 from include import Cfg
 
-
 class Map(dict):
     """
     Example:
@@ -264,6 +263,13 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             except:
                 return 0,0
         
+        
+        if v.startswith('"') and v.endswith('"'):
+            v = list(bytes(v[1:-1], 'utf-8'))
+            l=len(v)
+            #l = 1
+            #v = v[0]
+            return v, l
         # ToDo: tokenize, allow (), implement proper order of operations.
         if '+' in v:
             v = v.split('+')
@@ -343,9 +349,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         addr = 0
         currentAddress = addr
         mode = ""
-        
         showAddress = False
-        
         out = []
         outputText = ''
         
@@ -354,7 +358,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 break
             line = lines[i]
             
-            #if passNum == 2: print(line)
+            if passNum == 2: print(line)
             
             currentAddress = addr
             originalLine = line
@@ -374,7 +378,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                         blockComment = 0
             if blockComment>0:
                 line = ''
-                pass
             
             b=[]
             k = line.split(" ",1)[0].strip().lower()
@@ -442,7 +445,11 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             if k == "db" or k=="byte" or k == 'byt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
-                b = b + [getValue(x) for x in values]
+                #b = b + [getValue(x) for x in values]
+                
+                for v in [getValue(x) for x in values]:
+                    b = b + makeList(v)
+                
                 out = out + b
                 addr = addr + len(b)
             if k == "dw" or k=="word" or k=='dbyt':
