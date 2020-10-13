@@ -359,6 +359,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 if sep in line:
                     line = line.strip().split(sep,1)[1].strip()
                     blockComment-=1
+                    if cfg.isFalse(cfg.getValue('main', 'nestedComments')):
+                        blockComment = 0
             if blockComment>0:
                 line = ''
                 pass
@@ -539,6 +541,7 @@ cfg.setDefault('main', 'list_nBytes', 8)
 cfg.setDefault('main', 'comment', ';,//')
 cfg.setDefault('main', 'commentBlockOpen', '/*')
 cfg.setDefault('main', 'commentBlockClose', '*/')
+cfg.setDefault('main', 'nestedComments', True)
 
 if len(sys.argv) <2:
     print("Error: no file specified.")
