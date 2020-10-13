@@ -58,8 +58,13 @@ Comments:
 ```
     
 ## Operators ##
+
+NOTE: order of operations is wrong, and () is not supported yet.
+
 | op | description                       |
 |:--:|-----------------------------------|
+|  * | multiplication                    |
+|  / | division                          |
 |  + | addition                          |
 |  - | subtraction                       |
 |  < | prefix to give lower byte of word |

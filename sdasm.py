@@ -264,6 +264,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             except:
                 return 0,0
         
+        # ToDo: tokenize, allow (), implement proper order of operations.
         if '+' in v:
             v = v.split('+')
             v = getValue(v[0]) + getValue(v[1])
@@ -272,6 +273,16 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         if '-' in v:
             v = v.split('-')
             v = getValue(v[0]) - getValue(v[1])
+            l = 1 if v <=256 else 2
+            return v,l
+        if '*' in v:
+            v = v.split('*')
+            v = getValue(v[0]) * getValue(v[1])
+            l = 1 if v <=256 else 2
+            return v,l
+        if '/' in v:
+            v = v.split('/')
+            v = getValue(v[0]) / getValue(v[1])
             l = 1 if v <=256 else 2
             return v,l
         
