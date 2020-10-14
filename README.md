@@ -287,7 +287,8 @@ endif
     endif
 ```
 
-        "ifdef" will process a block of code if a symbol has been defined.
+        ifdef will process a block of code if a symbol has been defined.
+        ifndef will process a block of code if a symbol has not been defined.
 
 ```
     ifdef foobar

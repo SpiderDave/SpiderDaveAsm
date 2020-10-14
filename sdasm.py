@@ -67,7 +67,7 @@ directives = [
     'print','warning','error',
     'setincludefolder',
     'macro','endm','endmacro',
-    'if','ifdef','else','elseif','endif',
+    'if','ifdef','ifndef','else','elseif','endif',
 ]
 
 asm=[
@@ -229,7 +229,7 @@ opcodes = list(dict.fromkeys([x.opcode for x in asm]))
 
 implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
-ifDirectives = ['if','endif','else','elseif','ifdef']
+ifDirectives = ['if','endif','else','elseif','ifdef','ifndef']
 
 mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))] 
 
@@ -475,13 +475,26 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 ifLevel+=1
                 ifData[ifLevel] = Map()
                 
-                data = line.split(" ",1)[1].strip().replace('==','=')
-                if symbols[data]:
+                data = line.split(" ",1)[1].strip().replace('==','=').lower()
+                if data in symbols:
                     ifData[ifLevel].bool = True
                     ifData[ifLevel].done = True
                 else:
                     ifData[ifLevel].bool = False
             
+            if k == 'ifndef':
+                ifLevel+=1
+                ifData[ifLevel] = Map()
+                
+                data = line.split(" ",1)[1].strip().replace('==','=').lower()
+                
+                if data in symbols:
+                    ifData[ifLevel].bool = False
+                else:
+                    ifData[ifLevel].bool = True
+                    ifData[ifLevel].done = True
+                
+                
             if k == 'elseif':
                 if ifData[ifLevel].done:
                     ifData[ifLevel].bool=False
