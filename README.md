@@ -254,16 +254,45 @@ endm / endmacro
     MACRO name args...
 
     Define a macro.  Macro arguments are separated by commas or spaces.
+    Note: symbols are not local.
 
 ```
-                MACRO setAXY x,y,z
-                    LDA #x
-                    LDX #y
-                    LDY #z
-                ENDM
+    macro setAXY x,y,z
+        lda #x
+        ldx #y
+        ldy #z
+    macro
 
-                setAXY $12,$34,$56
-                        ;expands to LDA #$12
-                        ;           LDX #$34
-                        ;           LDY #$56
+    setAXY $12,$34,$56
+            ;expands to lda #$12
+            ;           ldx #$34
+            ;           ldy #$56
+```
+
+if
+ifdef
+elseif
+else
+endif
+
+        Process a block of code if an expression is true (nonzero).
+
+```
+    if foobar = 3
+        db 0
+    elseif foobar = 5
+        db 1
+    else
+        db $ff
+    endif
+```
+
+        "ifdef" will process a block of code if a symbol has been defined.
+
+```
+    ifdef foobar
+        db foobar
+    else
+        db 0
+    endif
 ```
