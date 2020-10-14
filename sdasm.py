@@ -356,6 +356,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
     commentBlockOpen = makeList(cfg.getValue('main', 'commentBlockOpen'))
     commentBlockClose = makeList(cfg.getValue('main', 'commentBlockClose'))
     fillValue = getValue(cfg.getValue('main', 'fillValue'))
+    localPrefix = makeList(cfg.getValue('main', 'localPrefix'))
     debug = cfg.isTrue(cfg.getValue('main', 'debug'))
 
 
@@ -372,6 +373,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
 
     symbols = Map()
     aLabels = []
+    lLabels = []
     blockComment = 0
     
     for passNum in (1,2):
@@ -419,6 +421,12 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             if k.endswith(":"):
                 symbols[k[:-1]] = str(addr)
                 line = line.split(":",1)[1].strip()
+                
+                # remove all local labels
+                if not k.startswith(tuple(localPrefix)):
+                    symbols = {k:v for (k,v) in symbols.items() if not k.startswith(tuple(localPrefix))}
+                
+                # update k so the rest of the line can be processed.
                 k = line.split(" ",1)[0].strip()
             
             if k!='' and (k=="-"*len(k) or k=="+"*len(k)):
@@ -440,7 +448,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 
                 with open(filename, 'rb') as file:
                     b = list(file.read())
-                    #out = out + b
                 
                 lines = lines[:i]+['']+['setincludefolder '+currentFolder]+newLines+lines[i+1:]
             if k == "include" or k=="incsrc":
@@ -518,27 +525,17 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 
                 b = b + ([fv] * ((a-currentAddress%a)%a))
                 
-                #if noOutput: b = []
-                #out = out + b
-                #addr = addr + len(b)
             if k == "hex":
                 data = line.split(' ',1)[1]
                 b = b + list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
                 
-#                if noOutput: b = []
-#                out = out + b
-#                addr = addr + len(b)
             if k == "db" or k=="byte" or k == 'byt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
-                #b = b + [getValue(x) for x in values]
                 
                 for v in [getValue(x) for x in values]:
                     b = b + makeList(v)
                 
-#                if noOutput: b = []
-#                out = out + b
-#                addr = addr + len(b)
             if k == "dw" or k=="word" or k=='dbyt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
@@ -547,10 +544,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 for value in values:
                     b = b + [value % 0x100, value>>8]
                 
-#                if noOutput: b = []
-#                out = out + b
-#                addr = addr + len(b)
-            
             if k.lower() in opcodes:
                 v = "0"
                 if k in implied and k.strip() == line.strip():
@@ -592,7 +585,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                         elif getOpWithMode(k, "Relative"):
                             op = getOpWithMode(k, "Relative")
                 if op:
-                    #addr = addr + op.length
                     
                     if op.mode == 'Relative':
                         if addr>getValue(v):
@@ -605,8 +597,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     elif op.length == 3:
                         b.append(getValue(v) % 0x100)
                         b.append(math.floor(getValue(v)/0x100))
-#                    if noOutput: b = []
-#                    out = out + b
             if "=" in line:
                 k = line.split("=",1)[0].strip()
                 v = line.split("=",1)[1].strip()
@@ -665,6 +655,7 @@ cfg.setDefault('main', 'commentBlockOpen', '/*')
 cfg.setDefault('main', 'commentBlockClose', '*/')
 cfg.setDefault('main', 'nestedComments', True)
 cfg.setDefault('main', 'fillValue', '$ff')
+cfg.setDefault('main', 'localPrefix', '@')
 cfg.setDefault('main', 'debug', False)
 
 if len(sys.argv) <2:

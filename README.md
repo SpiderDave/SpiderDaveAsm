@@ -37,7 +37,9 @@ Comments:
 ## Labels ##
     Labels must end in a colon.  Code can be placed on the same line as labels.
     Anonymous labels are 1 or more "-" or "+" characters.  These labels will only
-    search backwards for "-" and forwards for "+".
+    search backwards for "-" and forwards for "+".  Labels starting with '@' are
+    local labels.  They have limited scope, visible only between non-local labels.
+    
     
 ```
     Start:
@@ -46,6 +48,14 @@ Comments:
     
     - lda PPUSTATUS     ; wait another frame
     bpl -
+    
+    label1:
+    @tmp1:
+    @tmp2:
+    
+    label2:
+    @tmp1:
+    @tmp2:
 ```
 
 ## Numbers ##
