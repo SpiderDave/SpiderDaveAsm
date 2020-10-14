@@ -12,7 +12,8 @@ Currently, creates output.txt and output.bin.
 
 ## Features ##
 * Supports all (official) 6502 opcodes
-* Anonymous labels
+* Anonymous labels, local labels
+* macros
 
 # Syntax #
 

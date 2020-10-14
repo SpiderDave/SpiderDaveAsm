@@ -67,6 +67,7 @@ directives = [
     'print','warning','error',
     'setincludefolder',
     'macro','endm','endmacro',
+    'if','ifdef','else','elseif','endif',
 ]
 
 asm=[
@@ -228,6 +229,7 @@ opcodes = list(dict.fromkeys([x.opcode for x in asm]))
 
 implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
+ifDirectives = ['if','endif','else','elseif','ifdef']
 
 mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))] 
 
@@ -288,7 +290,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 v = [x+right for x in left]
                 return v,len(v)
             else:
-                return -1, 1
+                return 0, 1
             l = 1 if v <=256 else 2
             return v,l
         if '-' in v:
@@ -300,7 +302,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 v = [x-right for x in left]
                 return v,len(v)
             else:
-                return -1, 1
+                return 0, 1
             l = 1 if v <=256 else 2
             return v,l
         if '*' in v:
@@ -339,7 +341,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         elif v.lower() in symbols:
             v, l = getValueAndLength(symbols[v.lower()])
         else:
-            v = -1
+            v = 0
             l = -1
         return v, l
 
@@ -389,6 +391,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         oldAddr = 0
         
         noOutput = False
+        
         macro = False
         currentAddress = addr
         mode = ""
@@ -397,6 +400,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         outputText = ''
         startAddress = False
         currentFolder = ''
+        ifLevel = 0
+        ifData = Map()
         
         for i in range(10000000):
             if i>len(lines)-1:
@@ -407,6 +412,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             
             currentAddress = addr
             originalLine = line
+            
+            
             
             # "EQU" replacement
             for item in equ:
@@ -435,6 +442,14 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             if blockComment>0:
                 line = ''
             
+            if ifLevel:
+                if ifData[ifLevel].bool == False:
+                    
+                    if line.split(" ",1)[0].strip().lower() not in ifDirectives:
+                        ifData.line = line
+                        line = ''
+            
+            
             b=[]
             k = line.split(" ",1)[0].strip().lower()
             if k.endswith(":"):
@@ -455,6 +470,48 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             # prefix is optional for valid directives
             if k.startswith(".") and k[1:] in directives:
                 k=k[1:]
+            
+            if k == 'ifdef':
+                ifLevel+=1
+                ifData[ifLevel] = Map()
+                
+                data = line.split(" ",1)[1].strip().replace('==','=')
+                if symbols[data]:
+                    ifData[ifLevel].bool = True
+                    ifData[ifLevel].done = True
+                else:
+                    ifData[ifLevel].bool = False
+            
+            if k == 'elseif':
+                if ifData[ifLevel].done:
+                    ifData[ifLevel].bool=False
+                else:
+                    k = 'if'
+            
+            if k == 'if':
+                ifLevel+=1
+                ifData[ifLevel] = Map()
+                
+                data = line.split(" ",1)[1].strip().replace('==','=')
+                
+                if '=' in data:
+                    l,r = data.split('=')
+                    if getValue(l) == getValue(r):
+                        ifData[ifLevel].bool = True
+                        ifData[ifLevel].done = True
+                    else:
+                        ifData[ifLevel].bool = False
+                else:
+                    if getValue(data):
+                        ifData[ifLevel].bool = True
+                        ifData[ifLevel].done = True
+                    else:
+                        ifData[ifLevel].bool = False
+            if k == 'else':
+                ifData[ifLevel].bool = not ifData[ifLevel].done
+                
+            if k == 'endif':
+                ifLevel-=1
             
             # hidden internally used directive used with include paths
             if k == "setincludefolder":
@@ -509,9 +566,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             elif k == 'endm':
                 macro = False
                 noOutput = False
-                print('*'*20)
-                print(macros)
-                print('*'*20)
             elif macro:
                 macros[macro].lines.append(originalLine)
             
