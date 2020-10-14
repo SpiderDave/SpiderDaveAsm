@@ -499,9 +499,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             
             if k == 'macro':
                 v = line.split(" ")[1].strip()
-                macro = v
+                macro = v.lower()
                 macros[macro]=Map()
-                macros[macro].params = line.split(" ")[2:]
+                
+                macros[macro].params = line.split(" ", 2)[2].replace(',',' ').split()
                 macros[macro].lines = []
                 noOutput = True
             elif k == 'endm':
@@ -515,15 +516,14 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             
             
             if k in macros:
-                params = line.split(" ",1)[1]
-                if ',' in params:
-                    params = params.split(',')
-                else:
-                    params = params.split()
-                params = [x.strip() for x in params]
+                params = line.split(" ",1)[1].replace(',',' ').split()
+                
+                print(macros[k].params)
+                print(params)
                 
                 for item in mergeList(macros[k].params, params):
                     symbols[item[0]] = item[1]
+                    print(item[0],'=',item[1])
                 
                 for l in macros[k]['lines']:
                     print(l)

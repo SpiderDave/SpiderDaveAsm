@@ -246,3 +246,23 @@ error
 ```
     error file not found!
 ```
+
+macro
+endm / endmacro
+
+    MACRO name args...
+
+    Define a macro.  Macro arguments are separated by commas or spaces.
+
+```
+                MACRO setAXY x,y,z
+                    LDA #x
+                    LDX #y
+                    LDY #z
+                ENDM
+
+                setAXY $12,$34,$56
+                        ;expands to LDA #$12
+                        ;           LDX #$34
+                        ;           LDY #$56
+```
