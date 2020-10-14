@@ -33,7 +33,7 @@ Comments:
         This is a block level comment
     */
 ```
-    
+
 ## Labels ##
     Labels must end in a colon.  Code can be placed on the same line as labels.
     Anonymous labels are 1 or more "-" or "+" characters.  These labels will only
@@ -58,8 +58,9 @@ Comments:
     @tmp2:
 ```
 
-## Numbers ##
+## Numbers and Symbols ##
     Hexadecimal numbers start with "$".  Binary numbers start with "%".
+    A "$" by itself may be used to get or set the current address.
     
 ```
     lda #$00        ; The "#" indicates an "immediate" value.
@@ -67,9 +68,12 @@ Comments:
     sta $4002
 ```
 
-## Other Symbols ##
+    Symbols enclosed in {} can be used to insert them anywhere.
     
-    A "$" by itself may be used to get or set the current address.
+```
+    file = foobar
+    include {file}.asm
+```
     
 ## Strings ##
     

@@ -228,6 +228,8 @@ opcodes = list(dict.fromkeys([x.opcode for x in asm]))
 implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
 
+mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))] 
+
 def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt',):
     def makeList(item):
         if type(item)!=list:
@@ -358,6 +360,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
     fillValue = getValue(cfg.getValue('main', 'fillValue'))
     localPrefix = makeList(cfg.getValue('main', 'localPrefix'))
     debug = cfg.isTrue(cfg.getValue('main', 'debug'))
+    varOpen = makeList(cfg.getValue('main', 'varOpen'))
+    varClose = makeList(cfg.getValue('main', 'varClose'))
 
 
     try:
@@ -372,8 +376,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
     originalLines = lines
 
     symbols = Map()
+    equ = Map()
     aLabels = []
     lLabels = []
+    macros = Map()
     blockComment = 0
     
     for passNum in (1,2):
@@ -382,6 +388,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         oldAddr = 0
         
         noOutput = False
+        macro = False
         currentAddress = addr
         mode = ""
         showAddress = False
@@ -400,9 +407,20 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             currentAddress = addr
             originalLine = line
             
+            # "EQU" replacement
+            for item in equ:
+                line = line.replace(item, equ[item])
+            
+            # {var} replacement
+            for item in symbols:
+                for o,c in mergeList(varOpen,varClose):
+                    line = line.replace(o+item+c, symbols[item])
+            
+            # remove single line comments
             for sep in commentSep:
                 line = line.strip().split(sep,1)[0].strip()
             
+            # remove comment blocks
             for sep in commentBlockOpen:
                 if sep in line:
                     line = line.strip().split(sep,1)[0].strip()
@@ -479,6 +497,39 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 print('Error: ' + v)
                 exit()
             
+            if k == 'macro':
+                v = line.split(" ")[1].strip()
+                macro = v
+                macros[macro]=Map()
+                macros[macro].params = line.split(" ")[2:]
+                macros[macro].lines = []
+                noOutput = True
+            elif k == 'endm':
+                macro = False
+                noOutput = False
+                print('*'*20)
+                print(macros)
+                print('*'*20)
+            elif macro:
+                macros[macro].lines.append(originalLine)
+            
+            
+            if k in macros:
+                params = line.split(" ",1)[1]
+                if ',' in params:
+                    params = params.split(',')
+                else:
+                    params = params.split()
+                params = [x.strip() for x in params]
+                
+                for item in mergeList(macros[k].params, params):
+                    symbols[item[0]] = item[1]
+                
+                for l in macros[k]['lines']:
+                    print(l)
+                
+                lines = lines[:i]+['']+macros[k].lines+lines[i+1:]
+                
             if k == 'enum':
                 oldAddr = addr
                 addr = 0x200
@@ -597,6 +648,12 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     elif op.length == 3:
                         b.append(getValue(v) % 0x100)
                         b.append(math.floor(getValue(v)/0x100))
+            
+            if " equ " in line.lower():
+                k = line[:line.lower().find(' equ ')]
+                v = line[line.lower().find(' equ ')+len(' equ '):]
+                equ[k] = v
+            
             if "=" in line:
                 k = line.split("=",1)[0].strip()
                 v = line.split("=",1)[1].strip()
@@ -657,6 +714,8 @@ cfg.setDefault('main', 'nestedComments', True)
 cfg.setDefault('main', 'fillValue', '$ff')
 cfg.setDefault('main', 'localPrefix', '@')
 cfg.setDefault('main', 'debug', False)
+cfg.setDefault('main', 'varOpen', '{')
+cfg.setDefault('main', 'varClose', '}')
 
 if len(sys.argv) <2:
     print("Error: no file specified.")
