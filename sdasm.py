@@ -66,6 +66,7 @@ directives = [
     'enum','ende','endenum','fillvalue',
     'print','warning','error',
     'setincludefolder',
+    'macro','endm','endmacro',
 ]
 
 asm=[
