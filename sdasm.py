@@ -384,14 +384,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             l = 1 if v <=256 else 2
             return v,l
         
-        for op in operations:
-            if op in v:
-                v = v.split(op)
-                v = operations[op](getValue(v[0]), getValue(v[1]))
-                l = 1 if v <=256 else 2
-                return v,l
-        
-        
         if v.startswith("<"):
             v = getValue(v[1:]) % 0x100
             l = 1
@@ -411,6 +403,13 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         elif v.startswith("%"):
             l = 1
             v = int(v[1:],2)
+        elif any(x in v for x in operations):
+            for op in operations:
+                if op in v:
+                    v = v.split(op)
+                    v = operations[op](getValue(v[0]), getValue(v[1]))
+                    l = 1 if v <=256 else 2
+                    return v,l
         elif isNumber(v):
             l = 1 if int(v,10) <=256 else 2
             v = int(v,10)
@@ -505,6 +504,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             currentAddress = addr
             originalLine = line
             errorText = False
+            
+            #print(originalLine)
             
             # change tabs to spaces
             line = line.replace("\t"," ")
