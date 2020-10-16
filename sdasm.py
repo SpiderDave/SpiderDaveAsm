@@ -19,6 +19,7 @@ import time
 from datetime import datetime
 
 import pathlib
+import operator
 
 try: import numpy as np
 except: np = False
@@ -27,6 +28,24 @@ np = False
 
 def inScriptFolder(f):
     return os.path.join(os.path.dirname(os.path.realpath(__file__)),f)
+
+
+
+operations = {
+#    '-':operator.sub,
+#    '+':operator.add,
+    '/':operator.truediv,
+    '&':operator.and_,
+    '^':operator.xor,
+    '~':operator.invert,
+    '|':operator.or_,
+    '**':operator.pow,
+    '<<':operator.lshift,
+    '>>':operator.rshift,
+    '%':operator.mod,
+    '*':operator.mul,
+}
+
 
 class Map(dict):
     """
@@ -248,7 +267,8 @@ implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
 ifDirectives = ['if','endif','else','elseif','ifdef','ifndef']
 
-mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))] 
+mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))]
+makeHex = lambda x: '$'+x.to_bytes(((x.bit_length() + 7) // 8),"big").hex()
 
 specialSymbols = ['sdasm']
 timeSymbols = ['year','month','day','hour','minute','second']
@@ -258,14 +278,13 @@ specialSymbols+= timeSymbols
 def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt',):
     def getSpecial(s):
         if s == 'sdasm':
-            return 1,1
+            v = 1
         elif s in timeSymbols:
             v = list(datetime.now().timetuple())[timeSymbols.index(s)]
-            if s == 'year':
-                return v, 2
-            else:
-                return v, 1
-            
+        if type(v) in (int,float):
+            return makeHex(v)
+        else:
+            return v
     def findFile(filename):
         
         # Search for files in this order:
@@ -364,16 +383,14 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 return 0, 1
             l = 1 if v <=256 else 2
             return v,l
-        if '*' in v:
-            v = v.split('*')
-            v = getValue(v[0]) * getValue(v[1])
-            l = 1 if v <=256 else 2
-            return v,l
-        if '/' in v:
-            v = v.split('/')
-            v = getValue(v[0]) / getValue(v[1])
-            l = 1 if v <=256 else 2
-            return v,l
+        
+        for op in operations:
+            if op in v:
+                v = v.split(op)
+                v = operations[op](getValue(v[0]), getValue(v[1]))
+                l = 1 if v <=256 else 2
+                return v,l
+        
         
         if v.startswith("<"):
             v = getValue(v[1:]) % 0x100
@@ -400,7 +417,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         elif v.lower() in symbols:
             v, l = getValueAndLength(symbols[v.lower()])
         elif v.lower() in specialSymbols:
-            v, l = getSpecial(v.lower())
+            v, l = getValueAndLength(getSpecial(v.lower()))
         else:
             v = 0
             l = -1
@@ -501,6 +518,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 if o in line and c in line:
                     for item in symbols:
                         line = line.replace(o+item+c, symbols[item])
+                    for item in specialSymbols:
+                        if o+item+c in line:
+                            s = getSpecial(item)
+                            line = line.replace(o+item+c, s)
             
             # remove single line comments
             for sep in commentSep:

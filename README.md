@@ -90,16 +90,22 @@ Comments:
 
 ## Operators ##
 
-NOTE: order of operations is wrong, and () is not supported yet.
-
-| op | description                       |
-|:--:|-----------------------------------|
-|  * | multiplication                    |
-|  / | division                          |
-|  + | addition                          |
-|  - | subtraction                       |
-|  < | prefix to give lower byte of word |
-|  > | prefix to give upper byte of word |    
+| op  | description                       |
+|:---:|-----------------------------------|
+|  %  | Modulo                            |
+|  &  | Bitwise AND                       |
+|  |  | Bitwise OR                        |
+|  ^  | Bitwise XOR                       |
+|  ~  | Invert                            |
+|  << | Shift bits left                   |
+|  >> | Shift bits right                  |
+|  ** | Exponentiation                    |
+|  *  | multiplication                    |
+|  /  | division                          |
+|  +  | addition                          |
+|  -  | subtraction                       |
+|  <  | prefix to give lower byte of word |
+|  >  | prefix to give upper byte of word |    
 
 ## Directives ##
     Most directives may optionally be prefixed with a ".".
