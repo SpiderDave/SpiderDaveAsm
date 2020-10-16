@@ -16,11 +16,14 @@ ToDo:
 import math, os, sys
 from include import Cfg
 import time
+from datetime import datetime
 
 import pathlib
 
 try: import numpy as np
 except: np = False
+
+np = False
 
 def inScriptFolder(f):
     return os.path.join(os.path.dirname(os.path.realpath(__file__)),f)
@@ -247,7 +250,22 @@ ifDirectives = ['if','endif','else','elseif','ifdef','ifndef']
 
 mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))] 
 
+specialSymbols = ['sdasm']
+timeSymbols = ['year','month','day','hour','minute','second']
+
+specialSymbols+= timeSymbols
+
 def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt',):
+    def getSpecial(s):
+        if s == 'sdasm':
+            return 1,1
+        elif s in timeSymbols:
+            v = list(datetime.now().timetuple())[timeSymbols.index(s)]
+            if s == 'year':
+                return v, 2
+            else:
+                return v, 1
+            
     def findFile(filename):
         
         # Search for files in this order:
@@ -381,6 +399,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             v = int(v,10)
         elif v.lower() in symbols:
             v, l = getValueAndLength(symbols[v.lower()])
+        elif v.lower() in specialSymbols:
+            v, l = getSpecial(v.lower())
         else:
             v = 0
             l = -1
@@ -467,6 +487,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             
             currentAddress = addr
             originalLine = line
+            errorText = False
             
             # change tabs to spaces
             line = line.replace("\t"," ")
@@ -617,7 +638,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 
                 lines = lines[:i]+['']+['setincludefolder '+currentFolder]+lines[i+1:]
             elif k == "include" or k=="incsrc":
-                print(currentFolder)
                 filename = line.split(" ",1)[1].strip()
                 filename = findFile(filename)
                 
@@ -832,7 +852,9 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     else:
                         listBytes = ' '.join(['{:02X}'.format(x) for x in b[:nBytes]]).ljust(3*nBytes-1) + ('..' if len(b)>nBytes else '  ')
                     outputText+="{} {}\n".format(listBytes, originalLine)
-                
+                if errorText:
+                    outputText+=errorText+"\n"
+                    errorText = False
             if k==".org": showAddress = True
 
     with open(listFilename, 'w') as file:
