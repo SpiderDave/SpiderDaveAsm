@@ -501,8 +501,9 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 if not [k,addr] in aLabels:
                     aLabels.append([k, addr])
                     
-                    # update k so the rest of the line can be processed.
-                    k = line.split(" ",1)[0].strip()
+                    # update so rest of line can be processed
+                    line = (line.split(" ",1)+[''])[1].strip()
+                    k = line.split(" ",1)[0].strip().lower()
             
             # This is really complicated but we have to check to see
             # if this is a label without a suffix somehow.
@@ -511,14 +512,14 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 k=k+labelSuffix[0]
             if k.endswith(tuple(labelSuffix)):
                 symbols[k[:-1].lower()] = str(addr)
-                line = (line.split(" ",1)+[''])[1].strip()
                 
                 # remove all local labels
                 if not k.startswith(tuple(localPrefix)):
                     symbols = {k:v for (k,v) in symbols.items() if not k.startswith(tuple(localPrefix))}
                 
-                # update k so the rest of the line can be processed.
-                k = line.split(" ",1)[0].strip()
+                # update so rest of line can be processed
+                line = (line.split(" ",1)+[''])[1].strip()
+                k = line.split(" ",1)[0].strip().lower()
             
             # prefix is optional for valid directives
             if k.startswith(".") and k[1:] in directives:
