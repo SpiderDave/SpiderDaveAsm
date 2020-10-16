@@ -15,20 +15,10 @@ ToDo:
 
 import math, os, sys
 from include import Cfg
-from time import time
+import time
 
 try: import numpy as np
 except: np = False
-
-class Timer():
-    def __init__(self):
-        self.start()
-    def start(self):
-        self.time = time()
-    def end(self):
-        self.time = time() - self.time
-        print(self.time)
-    
 
 class Map(dict):
     """
@@ -398,6 +388,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         print("Error: could not open file.")
         exit()
 
+    initialFolder = os.path.split(filename)[0]
 
     # Doing it this way removes the line endings
     lines = file.read().splitlines()
@@ -431,6 +422,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         startAddress = False
         currentFolder = ''
         currentFolder = os.path.split(filename)[0]
+        currentFolder = initialFolder
         ifLevel = 0
         ifData = Map()
         arch = 'nes.cpu'
@@ -604,6 +596,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 
                 lines = lines[:i]+['']+['setincludefolder '+currentFolder]+lines[i+1:]
             if k == "include" or k=="incsrc":
+                print(currentFolder)
                 filename = line.split(" ",1)[1].strip()
                 filename = os.path.join(currentFolder,filename)
                 
@@ -862,10 +855,12 @@ if len(sys.argv) <2:
 
 filename = sys.argv[1]
 
-timer = Timer()
+start = time.time()
 
-timer.start()
 assemble(filename)
-timer.end()
+
+end = time.time()-start
+if end>=3:
+    print(time.strftime('Finished in %Hh %Mm %Ss.',time.gmtime(end)))
 
 cfg.save()
