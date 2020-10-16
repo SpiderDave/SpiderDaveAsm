@@ -247,7 +247,6 @@ ifDirectives = ['if','endif','else','elseif','ifdef','ifndef']
 
 mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))] 
 
-
 def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt',):
     def findFile(filename):
         
@@ -407,10 +406,9 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
     debug = cfg.isTrue(cfg.getValue('main', 'debug'))
     varOpen = makeList(cfg.getValue('main', 'varOpen'))
     varClose = makeList(cfg.getValue('main', 'varClose'))
+    varOpenClose = mergeList(varOpen,varClose)
     labelSuffix = makeList(cfg.getValue('main', 'labelSuffix'))
     
-
-
     try:
         file = open(filename, "r")
     except:
@@ -430,6 +428,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
     macros = Map()
     blockComment = 0
     
+    if debug and (not np):
+        print('no numpy')
     
     for passNum in (1,2):
         lines = originalLines
@@ -445,8 +445,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         out = []
         if np:
             out = np.array([],dtype="B")
-        else:
-            print('no np')
         outputText = ''
         startAddress = False
         currentFolder = ''
@@ -458,8 +456,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         banksize = '$10000'
         bank = 0
         
-        if debug:
-            print('pass {}...'.format(passNum))
+        print('pass {}...'.format(passNum))
         
         for i in range(10000000):
             if i>len(lines)-1:
@@ -479,9 +476,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 line = line.replace(item, equ[item])
             
             # {var} replacement
-            for item in symbols:
-                for o,c in mergeList(varOpen,varClose):
-                    line = line.replace(o+item+c, symbols[item])
+            for o,c in varOpenClose:
+                if o in line and c in line:
+                    for item in symbols:
+                        line = line.replace(o+item+c, symbols[item])
             
             # remove single line comments
             for sep in commentSep:
@@ -508,12 +506,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                         ifData.line = line
                         line = ''
             
-            
             if macro:
                 if line.split(" ",1)[0].strip().lower() not in ['endm','endmacro']:
                     macros[macro].lines.append(originalLine)
                     line = ''
-            
             
             b=[]
             k = line.split(" ",1)[0].strip().lower()
@@ -594,19 +590,15 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                         ifData[ifLevel].bool = False
             if k == 'else':
                 ifData[ifLevel].bool = not ifData[ifLevel].done
-                
-            if k == 'endif':
+            elif k == 'endif':
                 ifLevel-=1
-            
-            if k == 'arch':
+            elif k == 'arch':
                 arch = line.split(" ")[1].strip().lower()
                 if debug:
                     print('  Architecture: {}'.format(arch))
-            
-            if k == 'banksize':
+            elif k == 'banksize':
                 banksize = getValue(line.split(" ")[1].strip())
-            
-            if k == 'bank':
+            elif k == 'bank':
                 bank = getValue(line.split(" ")[1].strip())
                 if debug:
                     print('  Bank: {}'.format(bank))
@@ -616,7 +608,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 currentFolder = (line.split(" ",1)+[''])[1].strip()
                 hide = True
             
-            if k == "incbin" or k == "bin":
+            elif k == "incbin" or k == "bin":
                 filename = line.split(" ",1)[1].strip()
                 filename = findFile(filename)
                 
@@ -624,7 +616,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     b = list(file.read())
                 
                 lines = lines[:i]+['']+['setincludefolder '+currentFolder]+lines[i+1:]
-            if k == "include" or k=="incsrc":
+            elif k == "include" or k=="incsrc":
                 print(currentFolder)
                 filename = line.split(" ",1)[1].strip()
                 filename = findFile(filename)
@@ -637,24 +629,24 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 currentFolder = folder
                 
                 lines = lines[:i]+['']+newLines+lines[i+1:]
-            if k == 'includeall':
+            elif k == 'includeall':
                 folder = line.split(" ",1)[1].strip()
                 files = [x for x in os.listdir(folder) if os.path.splitext(x.lower())[1] in ['.asm']]
                 files = [x for x in files if not x.startswith('_')]
                 lines = lines[:i]+['']+['include {}/{}'.format(folder, x) for x in files]+lines[i+1:]
             
-            if k == 'print' and passNum==2:
+            elif k == 'print' and passNum==2:
                 v = line.split(" ",1)[1].strip()
                 print(v)
-            if k == 'warning' and passNum==2:
+            elif k == 'warning' and passNum==2:
                 v = line.split(" ",1)[1].strip()
                 print('warning: ' + v)
-            if k == 'error' and passNum==2:
+            elif k == 'error' and passNum==2:
                 v = line.split(" ",1)[1].strip()
                 print('Error: ' + v)
                 exit()
             
-            if k == 'macro':
+            elif k == 'macro':
                 v = line.split(" ")[1].strip()
                 macro = v.lower()
                 macros[macro]=Map()
@@ -664,7 +656,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             elif k == 'endm' or k == 'endmacro':
                 macro = False
                 noOutput = False
-            
             
             if k in macros:
                 params = line.split(" ",1)[1].replace(',',' ').split()
@@ -686,18 +677,18 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 addr = getValue(v)
                 currentAddress = addr
                 noOutput = True
-            if k == 'ende' or k == 'endenum':
+            elif k == 'ende' or k == 'endenum':
                 addr = oldAddr
                 currentAddress = addr
                 noOutput = False
             
-            if k == 'base':
+            elif k == 'base':
                 addr = getValue(line.split(' ',1)[1])
                 if startAddress == False:
                     startAddress = addr
                 currentAddress = addr
             
-            if k == 'org':
+            elif k == 'org':
                 if startAddress==False:
                     addr = getValue(line.split(' ',1)[1])
                     currentAddress = addr
@@ -714,7 +705,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 a = getValue(data.split(',')[0])
                 
                 b = b + ([fv] * (a-currentAddress))
-            if k == "align":
+            elif k == "align":
                 data = line.split(' ',1)[1]
                 
                 fv = fillValue
@@ -724,18 +715,18 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 
                 b = b + ([fv] * ((a-currentAddress%a)%a))
                 
-            if k == "hex":
+            elif k == "hex":
                 data = line.split(' ',1)[1]
                 b = b + list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
                 
-            if k == "db" or k=="byte" or k == 'byt':
+            elif k == "db" or k=="byte" or k == 'byt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
                 
                 for v in [getValue(x) for x in values]:
                     b = b + makeList(v)
                 
-            if k == "dw" or k=="word" or k=='dbyt':
+            elif k == "dw" or k=="word" or k=='dbyt':
                 values = line.split(' ',1)[1].split(",")
                 values = [x.strip() for x in values]
                 values = [getValue(x) for x in values]
@@ -743,7 +734,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 for value in values:
                     b = b + [value % 0x100, value>>8]
                 
-            if k in opcodes:
+            elif k in opcodes:
                 v = "0"
                 if k in implied and k.strip() == line.strip().lower():
                     op = getOpWithMode(k, "Implied")
@@ -825,11 +816,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 addr = addr + len(b)
             
             if passNum == 2 and not hide:
-#                if debug:
-#                    print(originalLine)
                 nBytes = cfg.getValue('main', 'list_nBytes')
                 
-                #if showAddress:
                 if startAddress:
                     outputText+="{:05X} ".format(currentAddress)
                 else:
@@ -860,7 +848,6 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 print(k,repr(v), file=file)
 
 # create our config parser
-
 cfg = Cfg(inScriptFolder('config.ini'))
 
 # read config file if it exists
