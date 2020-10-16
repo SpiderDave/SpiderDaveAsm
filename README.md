@@ -162,6 +162,26 @@ align
     align 256, $ea
 ```
 
+banksize
+    
+    Set the size of each PRG bank.
+    
+bank
+    
+    Set the current bank.
+
+```
+    .incbin smb.nes
+
+    banksize $8000
+    header
+
+    bank 0
+    .org $9069
+        lda #$08 ; start with 9 lives
+```
+
+
 fillvalue
 
     Change the default filler for pad, align, etc.

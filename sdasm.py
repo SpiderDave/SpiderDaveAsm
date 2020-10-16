@@ -520,7 +520,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             for o,c in varOpenClose:
                 if o in line and c in line:
                     for item in symbols:
-                        line = line.replace(o+item+c, symbols[item])
+                        #line = line.replace(o+item+c, symbols[item])
+                        while o+item+c in line.lower():
+                            line = line.replace(line[line.find('{'):line.find('}')+1], symbols[item])
+                        
                     for item in specialSymbols:
                         if o+item+c in line:
                             s = getSpecial(item)
