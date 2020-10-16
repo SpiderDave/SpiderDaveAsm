@@ -111,10 +111,13 @@ Comments:
     Most directives may optionally be prefixed with a ".".
 
 =
+define
+
     Used to define a symbol.  Symbol names are case-insensitive.
     
 ```
-    foobar = $42
+    foo = $42
+    define bar $43
 ```
     
 org

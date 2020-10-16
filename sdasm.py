@@ -103,7 +103,7 @@ directives = [
 ]
 
 directives = directives + [
-'index','mem','bank','banksize','header',
+'index','mem','bank','banksize','header','define',
 ]
 
 asm=[
@@ -845,6 +845,19 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                         b.append(getValue(v) % 0x100)
                         b.append(math.floor(getValue(v)/0x100))
             
+            if k == 'define':
+                k = line.split(" ")[1].strip()
+                v = line.split(" ",2)[-1].strip()
+                if k == '$':
+                    addr = getValue(v)
+                    if startAddress == False:
+                        startAddress = addr
+                    currentAddress = addr
+                else:
+                    symbols[k.lower()] = v
+                k=''
+
+            
             if " equ " in line.lower():
                 k = line[:line.lower().find(' equ ')]
                 v = line[line.lower().find(' equ ')+len(' equ '):]
@@ -859,6 +872,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     currentAddress = addr
                 else:
                     symbols[k.lower()] = v
+                k=''
             
             if len(b)>0:
                 showAddress = True
