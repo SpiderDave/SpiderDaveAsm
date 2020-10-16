@@ -17,8 +17,13 @@ import math, os, sys
 from include import Cfg
 import time
 
+import pathlib
+
 try: import numpy as np
 except: np = False
+
+def inScriptFolder(f):
+    return os.path.join(os.path.dirname(os.path.realpath(__file__)),f)
 
 class Map(dict):
     """
@@ -242,7 +247,31 @@ ifDirectives = ['if','endif','else','elseif','ifdef','ifndef']
 
 mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))] 
 
+
 def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt',):
+    def findFile(filename):
+        
+        # Search for files in this order:
+        #   Exact match
+        #   Relative to current script folder
+        #   Relative to initial script folder
+        #   Relative to current working folder
+        #   Relative to top level of initial script folder
+        #   Relative to executable folder
+        files = [
+            filename,
+            os.path.join(currentFolder,filename),
+            os.path.join(initialFolder,filename),
+            os.path.join(os.getcwd(),filename),
+            os.path.join(str(pathlib.Path(*pathlib.Path(initialFolder).parts[:1])),filename),
+            os.path.join(os.path.dirname(os.path.realpath(__file__)),filename),
+        ]
+        
+        for f in files:
+            if os.path.isfile(f): return f
+        
+        return filename
+    
     def makeList(item):
         if type(item)!=list:
             return [item]
@@ -589,7 +618,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             
             if k == "incbin" or k == "bin":
                 filename = line.split(" ",1)[1].strip()
-                filename = os.path.join(currentFolder,filename)
+                filename = findFile(filename)
                 
                 with open(filename, 'rb') as file:
                     b = list(file.read())
@@ -598,7 +627,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             if k == "include" or k=="incsrc":
                 print(currentFolder)
                 filename = line.split(" ",1)[1].strip()
-                filename = os.path.join(currentFolder,filename)
+                filename = findFile(filename)
                 
                 with open(filename, 'r') as file:
                     newLines = file.read().splitlines()
@@ -831,7 +860,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 print(k,repr(v), file=file)
 
 # create our config parser
-cfg = Cfg("config.ini")
+
+cfg = Cfg(inScriptFolder('config.ini'))
 
 # read config file if it exists
 cfg.load()
@@ -849,6 +879,9 @@ cfg.setDefault('main', 'varOpen', '{')
 cfg.setDefault('main', 'varClose', '}')
 cfg.setDefault('main', 'labelSuffix', ':')
 
+# save configuration so our defaults can be changed
+cfg.save()
+
 if len(sys.argv) <2:
     print("Error: no file specified.")
     exit()
@@ -863,4 +896,3 @@ end = time.time()-start
 if end>=3:
     print(time.strftime('Finished in %Hh %Mm %Ss.',time.gmtime(end)))
 
-cfg.save()
