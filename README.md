@@ -293,6 +293,11 @@ endif
     endif
 ```
 
+ifdef / ifndef
+elseif
+else
+endif
+
         ifdef will process a block of code if a symbol has been defined.
         ifndef will process a block of code if a symbol has not been defined.
 
@@ -302,4 +307,21 @@ endif
     else
         db 0
     endif
+```
+
+iffileexist / iffile
+elseif
+else
+endif
+
+        Process a block of code if given file exists.
+
+```
+    macro includeIfExist _file
+        iffile {_file}
+            include {_file}
+        endif
+    endm
+
+    includeIfExist file.asm
 ```

@@ -98,7 +98,7 @@ directives = [
     'print','warning','error',
     'setincludefolder',
     'macro','endm','endmacro',
-    'if','ifdef','ifndef','else','elseif','endif',
+    'if','ifdef','ifndef','else','elseif','endif','iffileexist','iffile',
     'arch',
 ]
 
@@ -265,7 +265,7 @@ opcodes = list(dict.fromkeys([x.opcode for x in asm]))
 
 implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
-ifDirectives = ['if','endif','else','elseif','ifdef','ifndef']
+ifDirectives = ['if','endif','else','elseif','ifdef','ifndef','iffileexist','iffile']
 
 mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))]
 makeHex = lambda x: '$'+x.to_bytes(((x.bit_length() + 7) // 8),"big").hex()
@@ -306,7 +306,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         for f in files:
             if os.path.isfile(f): return f
         
-        return filename
+        return False
     
     def makeList(item):
         if type(item)!=list:
@@ -611,7 +611,16 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                     ifData[ifLevel].bool=False
                 else:
                     k = 'if'
-            
+            elif k == 'iffileexist' or k == 'iffile':
+                ifLevel+=1
+                ifData[ifLevel] = Map()
+                
+                data = line.split(" ",1)[1].strip()
+                if findFile(data):
+                    ifData[ifLevel].bool = True
+                    ifData[ifLevel].done = True
+                else:
+                    ifData[ifLevel].bool = False
             if k == 'if':
                 ifLevel+=1
                 ifData[ifLevel] = Map()
