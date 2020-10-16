@@ -103,7 +103,7 @@ directives = [
 ]
 
 directives = directives + [
-'index','mem',
+'index','mem','bank','banksize','header',
 ]
 
 asm=[
@@ -276,6 +276,7 @@ timeSymbols = ['year','month','day','hour','minute','second']
 specialSymbols+= timeSymbols
 
 def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt',):
+
     def getSpecial(s):
         if s == 'sdasm':
             v = 1
@@ -489,8 +490,9 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         ifLevel = 0
         ifData = Map()
         arch = 'nes.cpu'
-        banksize = '$10000'
-        bank = 0
+        headerSize = 0
+        bankSize = 0x10000
+        bank = None
         
         print('pass {}...'.format(passNum))
         
@@ -648,12 +650,14 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 arch = line.split(" ")[1].strip().lower()
                 if debug:
                     print('  Architecture: {}'.format(arch))
+            elif k == 'header':
+                headerSize = 16
             elif k == 'banksize':
-                banksize = getValue(line.split(" ")[1].strip())
+                bankSize = getValue(line.split(" ")[1].strip())
             elif k == 'bank':
                 bank = getValue(line.split(" ")[1].strip())
-                if debug:
-                    print('  Bank: {}'.format(bank))
+#                if debug:
+#                    print('  Bank: {}'.format(bank))
             
             # hidden internally used directive used with include paths
             if k == "setincludefolder":
@@ -711,15 +715,15 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             if k in macros:
                 params = line.split(" ",1)[1].replace(',',' ').split()
                 
-                print(macros[k].params)
-                print(params)
+#                print(macros[k].params)
+#                print(params)
                 
                 for item in mergeList(macros[k].params, params):
                     symbols[item[0].lower()] = item[1]
-                    print(item[0],'=',item[1])
+#                    print(item[0],'=',item[1])
                 
-                for l in macros[k]['lines']:
-                    print(l)
+#                for l in macros[k]['lines']:
+#                    print(l)
                 
                 lines = lines[:i]+['']+macros[k].lines+lines[i+1:]
                 
@@ -859,11 +863,33 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             if len(b)>0:
                 showAddress = True
                 if noOutput==False and passNum == 2:
-                    if np:
-                        out = np.append(out, np.array(b, dtype='B'))
+                    if bank == None:
+                        if np:
+                            out = np.append(out, np.array(b, dtype='B'))
+                        else:
+                            out = out + b
                     else:
-                        out = out + b
-                    
+                        fileOffset = addr % bankSize + bank*bankSize+headerSize
+                        if fileOffset == len(out):
+                            # We're in the right spot, just append
+#                            print('yep')
+#                            print(hex(fileOffset))
+#                            print(hex(len(out)))
+#                            print(hex(addr))
+
+                            if np:
+                                out = np.append(out, np.array(b, dtype='B'))
+                            else:
+                                out = out + b
+                        elif fileOffset>len(out):
+                            fv = fillValue
+                            if np:
+                                out = np.append(out, np.array(([fv] * (fileOffset-len(out))), dtype='B'))
+                                out = np.append(out, np.array(b, dtype='B'))
+                            else:
+                                out = out + ([fv] * (fileOffset-len(out))) + b
+                        elif fileOffset<len(out):
+                            out = out[:fileOffset]+b+out[fileOffset+len(b):]
                 addr = addr + len(b)
             
             if passNum == 2 and not hide:
