@@ -2,28 +2,26 @@
 ToDo:
     * allow strings in instructions:
         lda "A"-$4b
-    * tokenize values better, especially strings
     * create large test .asm
-    * macros
-    * if,else,endif,ifdef
-    * iffileexist/iffile
     * text mapping
-    * local labels
-    * $ pc
+    * option to automatically localize labels in macros
 """
 
 
 import math, os, sys
-from include import Cfg
+from . import include
+Cfg = include.Cfg
 import time
 from datetime import datetime
 
 import pathlib
 import operator
 
-try: import numpy as np
-except: np = False
+#try: import numpy as np
+#except: np = False
 
+# need better code for slicing with numpy.
+# just disable for now.
 np = False
 
 def inScriptFolder(f):
@@ -268,18 +266,57 @@ accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
 ifDirectives = ['if','endif','else','elseif','ifdef','ifndef','iffileexist','iffile']
 
 mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))]
-makeHex = lambda x: '$'+x.to_bytes(((x.bit_length() + 7) // 8),"big").hex()
+makeHex = lambda x: '$'+x.to_bytes(((x.bit_length()|1  + 7) // 8),"big").hex()
 
-specialSymbols = ['sdasm']
+specialSymbols = ['sdasm','bank']
 timeSymbols = ['year','month','day','hour','minute','second']
 
 specialSymbols+= timeSymbols
 
-def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt',):
+def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt', configFile=False):
+    if not configFile:
+        configFile = inScriptFolder('config.ini')
+    
+    cfg = False
+#    try:
+    # create our config parser
+    cfg = Cfg(configFile)
 
+    # read config file if it exists
+    cfg.load()
+
+    # number of bytes to show when generating list
+    cfg.setDefault('main', 'list_nBytes', 8)
+    cfg.setDefault('main', 'comment', ';,//')
+    cfg.setDefault('main', 'commentBlockOpen', '/*')
+    cfg.setDefault('main', 'commentBlockClose', '*/')
+    cfg.setDefault('main', 'nestedComments', True)
+    cfg.setDefault('main', 'fillValue', '$00')
+    cfg.setDefault('main', 'localPrefix', '@')
+    cfg.setDefault('main', 'debug', False)
+    cfg.setDefault('main', 'varOpen', '{')
+    cfg.setDefault('main', 'varClose', '}')
+    cfg.setDefault('main', 'labelSuffix', ':')
+
+    # save configuration so our defaults can be changed
+    cfg.save()
+
+    _assemble(filename, outputFilename, listFilename, cfg=cfg)
+#    except:
+#        print("sdasm Error")
+#        return False
+#    return True
+
+def _assemble(filename, outputFilename, listFilename, cfg):
     def getSpecial(s):
         if s == 'sdasm':
             v = 1
+        elif s == 'bank':
+            if bank == None:
+                return ''
+            else:
+                #print(makeHex(bank))
+                return makeHex(bank)
         elif s in timeSymbols:
             v = list(datetime.now().timetuple())[timeSymbols.index(s)]
         if type(v) in (int,float):
@@ -480,8 +517,10 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
         mode = ""
         showAddress = False
         out = []
+        
         if np:
             out = np.array([],dtype="B")
+        
         outputText = ''
         startAddress = False
         currentFolder = ''
@@ -671,16 +710,21 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
                 filename = line.split(" ",1)[1].strip()
                 filename = findFile(filename)
                 
-                with open(filename, 'rb') as file:
-                    b = list(file.read())
-                
+                try:
+                    with open(filename, 'rb') as file:
+                        b = list(file.read())
+                except:
+                    print("Could not open file.")
                 lines = lines[:i]+['']+['setincludefolder '+currentFolder]+lines[i+1:]
             elif k == "include" or k=="incsrc":
                 filename = line.split(" ",1)[1].strip()
                 filename = findFile(filename)
                 
-                with open(filename, 'r') as file:
-                    newLines = file.read().splitlines()
+                try:
+                    with open(filename, 'r') as file:
+                        newLines = file.read().splitlines()
+                except:
+                    print("Could not open file.")
                 folder = os.path.split(filename)[0]
                 
                 newLines = ['setincludefolder '+folder]+newLines+['setincludefolder '+currentFolder]
@@ -943,39 +987,17 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = 'output.txt
             for k,v in symbols.items():
                 print(k,repr(v), file=file)
 
-# create our config parser
-cfg = Cfg(inScriptFolder('config.ini'))
+if __name__ == '__main__':
+    if len(sys.argv) <2:
+        print("Error: no file specified.")
+        exit()
 
-# read config file if it exists
-cfg.load()
+    filename = sys.argv[1]
 
-# number of bytes to show when generating list
-cfg.setDefault('main', 'list_nBytes', 8)
-cfg.setDefault('main', 'comment', ';,//')
-cfg.setDefault('main', 'commentBlockOpen', '/*')
-cfg.setDefault('main', 'commentBlockClose', '*/')
-cfg.setDefault('main', 'nestedComments', True)
-cfg.setDefault('main', 'fillValue', '$00')
-cfg.setDefault('main', 'localPrefix', '@')
-cfg.setDefault('main', 'debug', False)
-cfg.setDefault('main', 'varOpen', '{')
-cfg.setDefault('main', 'varClose', '}')
-cfg.setDefault('main', 'labelSuffix', ':')
+    start = time.time()
 
-# save configuration so our defaults can be changed
-cfg.save()
+    assemble(filename)
 
-if len(sys.argv) <2:
-    print("Error: no file specified.")
-    exit()
-
-filename = sys.argv[1]
-
-start = time.time()
-
-assemble(filename)
-
-end = time.time()-start
-if end>=3:
-    print(time.strftime('Finished in %Hh %Mm %Ss.',time.gmtime(end)))
-
+    end = time.time()-start
+    if end>=3:
+        print(time.strftime('Finished in %Hh %Mm %Ss.',time.gmtime(end)))
