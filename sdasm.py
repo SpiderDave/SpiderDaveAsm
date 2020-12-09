@@ -308,9 +308,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData):
             s = bytes(s).decode()
         
         s=s.strip()
-#        replaceItems = [(r'\n','\n')]
-#        for r1,r2 in replaceItems:
-#            s = s.replace(r1,r2)
         
         quotes = ['"""','"',"'"]
         for q in quotes:
