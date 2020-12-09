@@ -70,11 +70,52 @@ Comments:
 ```
 
     Symbols enclosed in {} can be used to insert them anywhere.
+    {:expression} can be used to insert an expression anywhere.
     
 ```
     file = foobar
     include {file}.asm
 ```
+    
+    There are a number of special formats using the format {name:data}
+    
+    shuffle
+        Shuffle a list of bytes.
+    
+```
+    db {shuffle:$00, $01, $02, $03, $04} ; outputs 5 bytes in random order
+```
+    
+    get
+        Get a byte at given address.
+    
+```
+    print {get:$9015} ; print the byte at $9015 in current bank.
+```
+    
+    format
+        format to a string
+    
+```
+    print {$04x:99} ; prints $0063.
+```
+    
+## Special Symbols ##
+    
+    sdasm
+        always 1
+    
+    bank
+        current bank
+    
+    year, month, day, hour, minute, second
+        appropriate numerical time value
+        
+    randbyte
+        random byte
+    
+    randword
+        random word
     
 ## Strings ##
     
@@ -203,7 +244,7 @@ ende
     enum
 ```
 
-db / byte / byt
+db / byte / byt / dc.b
     
     Output bytes.  Multiple items are separated by commas.
     
@@ -211,12 +252,39 @@ db / byte / byt
     db $00, $01, $ff
 ```
 
-dw / word
+dw / word / dbyt / dc.w
     
     Output words.  Multiple items are separated by commas.
     
 ```
     dw $8012, $8340
+```
+
+dl
+    
+    Similar to db, but outputs only the least significant byte of each value.
+
+```
+    dl $8012, $8340 ; equivalent to db <$8012, <$8340
+```
+
+dh
+    
+    Similar to db, but outputs only the most significant byte of each value.
+
+```
+    dh $8012, $8340 ; equivalent to db >$8012, >$8340
+```
+
+dsb
+dsw
+    
+    Define storage bytes or words.  First argument is size, second is fill value.
+    
+```
+    dsb 4           ; equivalent to db 0, 0, 0, 0
+    dsb 4, $ff      ; equivalent to db $ff, $ff, $ff, $ff
+    dsw 3, $1000    ; equivalent to dw $1000, $1000, $1000
 ```
 
 hex
@@ -251,6 +319,22 @@ incbin / bin
     
 ```
     include chr00.chr
+```
+    
+outputfile
+    
+    Set the output filename.
+    
+```
+    outputfile "game.nes"
+```
+    
+listfile
+    
+    Set the list filename.
+    
+```
+    outputfile "list.txt"
 ```
     
 print
@@ -347,4 +431,13 @@ endif
     endm
 
     includeIfExist file.asm
+```
+
+seed
+    
+    Set the random number seed for use with anything that uses random values.
+    
+```
+    seed $42
+    db {shuffle:$00, $01, $02, $03, $04, $05}
 ```
