@@ -34,11 +34,32 @@ def inScriptFolder(f):
 class Assembler():
     currentFolder = None
     initialFolder = None
+    currentTextMap = 'default'
+    textMap = {}
 
     def __init__(self):
         pass
     def dummy(self):
         pass
+    def mapText(self, text):
+        #print("Mapping text:", text)
+        textMap = self.textMap.get(self.currentTextMap, {})
+        
+        return [textMap.get(x, ord(x)) for x in text]
+    def setTextMap(self, name):
+        self.currentTextMap = name
+    def getTextMap(self):
+        return self.currentTextMap
+    def clearTextMap(self, name=False):
+        if not name:
+            name = self.currentTextMap
+        if name in self.textMap:
+            self.textMap.pop(name)
+    def setTextMapData(self, chars, mapTo):
+        textMap = self.textMap.get(self.currentTextMap, {})
+        textMap.update(dict(zip(chars,bytearray.fromhex(mapTo))))
+        
+        self.textMap[self.currentTextMap] = textMap
     def findFile(self, filename):
         
         # Search for files in this order:
@@ -127,7 +148,7 @@ directives = [
     'arch',
     'index','mem','bank','banksize','header','define',
     '_find',
-    'seed','outputfile','listfile',
+    'seed','outputfile','listfile','textmap','text',
 ]
 
 asm=[
@@ -336,15 +357,18 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
     def getValueAsString(s):
         return getString(getValue(s))
     
-    def getString(s):
+    def getString(s, strip=True):
         if type(s) is list:
             s = bytes(s).decode()
         
-        s=s.strip()
+        if strip:
+            s=s.strip()
         
         quotes = ['"""','"',"'"]
         for q in quotes:
-            if s.startswith(q) and s.endswith(q):
+            #if s.startswith(q) and s.endswith(q):
+            if s.strip().startswith(q) and s.strip().endswith(q):
+                s=s.strip()
                 s=s[len(q):-len(q)]
                 return s
         return s
@@ -516,13 +540,15 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 fileOffset = v - 0x8000 + (bank * bankSize) + headerSize - 0x4000
             else:
                 fileOffset = v - 0x8000 + headerSize - 0x4000
-#            print('*'*10)
-#            print('v=', hex(v))
-#            print('bank=', hex(bank))
-#            print('bankSize=', hex(bankSize))
-#            print('fileOffset=', hex(fileOffset))
             v = int(out[fileOffset])
             l = 1
+        if mode == 'getword':
+            if bank:
+                fileOffset = v - 0x8000 + (bank * bankSize) + headerSize - 0x4000
+            else:
+                fileOffset = v - 0x8000 + headerSize - 0x4000
+            v = int(out[fileOffset]) + int(out[fileOffset+1]) * 0x100
+            l = 2
         
         if mode == 'hexstring':
             v = "test"
@@ -682,7 +708,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                             s = getSpecial(item)
                             line = line.replace(o+item+c, s)
                     
-                    for item in ['shuffle','getbyte','choose','hexstring','format']:
+                    for item in ['shuffle','getbyte','getword','choose','hexstring','format']:
                         while o+item+":" in line:
                             start = line.find('{'+item+':')
                             end = line.find('}', start)
@@ -843,6 +869,26 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             elif k == 'seed':
                 v = getValue(line.split(" ")[1].strip())
                 random.seed(v)
+            elif k == 'textmap':
+                data = line.split(' ',1)[1]
+                
+                if data.lower() == 'clear':
+                    assembler.clearTextMap()
+                else:
+                    data = data.split()
+                    if data[0].lower() == 'space':
+                        data[0] = ' '
+                    elif '...' in data[0]:
+                        c1,c2 = data[0].split('...')
+                        data[0] = ''.join([chr(c) for c in range(ord(c1), ord(c2)+1)])
+                        
+                        n1 = int(data[1],16)
+                        data[1] = ''.join(['{:02x}'.format(x) for x in range(n1,n1+len(data[0]))])
+                    
+                    if data[0].lower() == 'set':
+                        assembler.setTextMap(data[1])
+                    else:
+                        assembler.setTextMapData(data[0], data[1])
             elif k == 'outputfile':
                 outputFilename = getValueAsString(line.split(" ",1)[1].strip())
             elif k == 'listfile':
@@ -990,7 +1036,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 n = getValue(data.split(',')[0])
                 
                 b = b + ([fv] * n)
-            elif k == "align":
+            elif k == 'align':
                 data = line.split(' ',1)[1]
                 
                 fv = fillValue
@@ -1000,7 +1046,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 
                 b = b + ([fv] * ((a-currentAddress%a)%a))
                 
-            elif k == "hex":
+            elif k == 'hex':
                 data = line.split(' ',1)[1]
                 b = b + list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
             
@@ -1030,6 +1076,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 for v in [getValue(x) >>8 for x in values]:
                     b = b + makeList(v)
             
+            elif k == 'text':
+                values = line.split(' ',1)[1]
+                values = getValue(values)
+                values = assembler.mapText(getString(values, strip=False))
+                #values = getValue(values)
+                b = b + makeList(values)
             elif k == 'db' or k=='byte' or k == 'byt' or k == 'dc.b':
                 values = line.split(' ',1)[1]
                 values = getValue(values)
