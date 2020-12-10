@@ -31,6 +31,39 @@ def inScriptFolder(f):
     return os.path.join(os.path.dirname(os.path.realpath(__file__)),f)
 
 
+class Assembler():
+    currentFolder = None
+    initialFolder = None
+
+    def __init__(self):
+        pass
+    def dummy(self):
+        pass
+    def findFile(self, filename):
+        
+        # Search for files in this order:
+        #   Exact match
+        #   Relative to current script folder
+        #   Relative to initial script folder
+        #   Relative to current working folder
+        #   Relative to top level of initial script folder
+        #   Relative to executable folder
+        files = [
+            filename,
+            os.path.join(self.currentFolder,filename),
+            os.path.join(self.initialFolder,filename),
+            os.path.join(os.getcwd(),filename),
+            os.path.join(str(pathlib.Path(*pathlib.Path(self.initialFolder).parts[:1])),filename),
+            os.path.join(os.path.dirname(os.path.realpath(__file__)),filename),
+        ]
+        
+        for f in files:
+            if os.path.isfile(f): return f
+        
+        return False
+
+assembler = Assembler()
+
 
 operations = {
 #    '-':operator.sub,
@@ -259,7 +292,7 @@ implied = [x.opcode for x in asm if x.mode=='Implied']
 accumulator = [x.opcode for x in asm if x.mode=="Accumulator"]
 ifDirectives = ['if','endif','else','elseif','ifdef','ifndef','iffileexist','iffile']
 
-mergeList = lambda a,b: [(a[i], b[i]) for i in range(0, len(a))]
+mergeList = lambda a,b: [(a[i], b[i]) for i in range(min(len(a),len(b)))]
 makeHex = lambda x: '$'+x.to_bytes(((x.bit_length()|1  + 7) // 8),"big").hex()
 
 specialSymbols = ['sdasm','bank','randbyte','randword']
@@ -336,27 +369,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         else:
             return v
     def findFile(filename):
-        
-        # Search for files in this order:
-        #   Exact match
-        #   Relative to current script folder
-        #   Relative to initial script folder
-        #   Relative to current working folder
-        #   Relative to top level of initial script folder
-        #   Relative to executable folder
-        files = [
-            filename,
-            os.path.join(currentFolder,filename),
-            os.path.join(initialFolder,filename),
-            os.path.join(os.getcwd(),filename),
-            os.path.join(str(pathlib.Path(*pathlib.Path(initialFolder).parts[:1])),filename),
-            os.path.join(os.path.dirname(os.path.realpath(__file__)),filename),
-        ]
-        
-        for f in files:
-            if os.path.isfile(f): return f
-        
-        return False
+        return assembler.findFile(filename)
     
     def makeList(item):
         if type(item)!=list:
@@ -489,13 +502,20 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         elif v.lower() in specialSymbols:
             v, l = getValueAndLength(getSpecial(v.lower()))
         else:
+            if passNum==2:
+                #errorText= 'invalid value: {}'.format(v)
+                #print('*** '+errorText)
+                pass
             v = 0
             l = -1
         
-        if mode == 'get':
+        if mode == 'getbyte':
             # this looks like the right result but i don't know why
             # i have to subtract the 0x4000
-            fileOffset = v - 0x8000 + (bank * bankSize) + headerSize - 0x4000
+            if bank:
+                fileOffset = v - 0x8000 + (bank * bankSize) + headerSize - 0x4000
+            else:
+                fileOffset = v - 0x8000 + headerSize - 0x4000
 #            print('*'*10)
 #            print('v=', hex(v))
 #            print('bank=', hex(bank))
@@ -546,8 +566,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
     print('sdasm')
     print(filename)
     
-    initialFolder = os.path.split(filename)[0]
-    currentFolder = initialFolder
+    assembler.initialFolder = os.path.split(filename)[0]
+    assembler.currentFolder = assembler.initialFolder
+    print(assembler.findFile('list.txt'))
 
     # Doing it this way removes the line endings
     lines = file.read().splitlines()
@@ -596,9 +617,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         
         outputText = ''
         startAddress = False
-#        currentFolder = ''
-#        currentFolder = os.path.split(filename)[0]
-        currentFolder = initialFolder
+#        assembler.currentFolder = ''
+#        assembler.currentFolder = os.path.split(filename)[0]
+        assembler.currentFolder = assembler.initialFolder
         ifLevel = 0
         ifData = Map()
         arch = 'nes.cpu'
@@ -661,7 +682,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                             s = getSpecial(item)
                             line = line.replace(o+item+c, s)
                     
-                    for item in ['shuffle','get','choose','hexstring','format']:
+                    for item in ['shuffle','getbyte','choose','hexstring','format']:
                         while o+item+":" in line:
                             start = line.find('{'+item+':')
                             end = line.find('}', start)
@@ -832,7 +853,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             
             # hidden internally used directive used with include paths
             if k == "setincludefolder":
-                currentFolder = (line.split(" ",1)+[''])[1].strip()
+                assembler.currentFolder = (line.split(" ",1)+[''])[1].strip()
                 hide = True
             
             elif k == "incbin" or k == "bin":
@@ -848,7 +869,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     print("Could not open file.")
                 if b:
                     fileList.append(filename)
-                    lines = lines[:i]+['']+['setincludefolder '+currentFolder]+lines[i+1:]
+                    lines = lines[:i]+['']+['setincludefolder '+assembler.currentFolder]+lines[i+1:]
             elif k == "include" or k=="incsrc":
                 filename = line.split(" ",1)[1].strip()
                 filename = getString(filename)
@@ -865,8 +886,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     fileList.append(filename)
                     folder = os.path.split(filename)[0]
                     
-                    newLines = ['setincludefolder '+folder]+newLines+['setincludefolder '+currentFolder]
-                    currentFolder = folder
+                    newLines = ['setincludefolder '+folder]+newLines+['setincludefolder '+assembler.currentFolder]
+                    assembler.currentFolder = folder
                     
                     lines = lines[:i]+['']+newLines+lines[i+1:]
             elif k == 'includeall':
@@ -913,6 +934,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             
             if k in macros:
                 params = (line.split(" ",1)+[''])[1].replace(',',' ').split()
+                
+                for item in macros[k].params:
+                    if item.lower() in symbols:
+                        symbols.pop(item.lower())
                 
                 for item in mergeList(macros[k].params, params):
                     symbols[item[0].lower()] = item[1]
@@ -1093,7 +1118,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     
                     if (op.length>1) and l>op.length-1:
                         b = [op.byte] + [0] * (op.length-1)
-                        errorText= 'out of range: {} {} {}'.format(op.length, hex(v),l)
+                        #errorText= 'out of range: {} {} {}'.format(op.length, hex(v),l)
+                        errorText= 'branch out of range: {}'.format(hex(v))
                     else:
                         b = [op.byte]
                         if op.length == 2:
@@ -1190,6 +1216,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     outputText+="{} {}\n".format(listBytes, originalLine)
                 if errorText:
                     outputText+='*** {}\n'.format(errorText)
+                    print(line)
+                    print('*** {}\n'.format(errorText))
                     errorText = False
             if k==".org": showAddress = True
     if passNum == 2:
