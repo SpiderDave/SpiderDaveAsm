@@ -219,13 +219,13 @@ bank
     Set the current bank.
 
 ```
-    .incbin smb.nes
+    incbin "smb.nes"
 
     banksize $8000
     header
 
     bank 0
-    .org $9069
+    org $9069
         lda #$08 ; start with 9 lives
 ```
 
@@ -322,10 +322,15 @@ includeall
 
 incbin / bin
     
-    Add a file to the assembly as raw data.
+    Add a file to the assembly as raw data.  A start offset and size may also
+    be specified
     
 ```
-    include chr00.chr
+    ; include whole file
+    incbin "chr00.chr"
+    
+    ; include 32 bytes from file.dat starting at file offset 16.
+    incbin "file.dat", $10, $20
 ```
     
 outputfile

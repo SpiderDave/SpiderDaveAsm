@@ -148,7 +148,8 @@ directives = [
     'arch',
     'index','mem','bank','banksize','header','define',
     '_find',
-    'seed','outputfile','listfile','textmap','text',
+    'seed','outputfile','listfile','textmap','text','insert',
+    'inesprg','ineschr','inesmir','inesmap','inesbattery','inesfourscreen',
 ]
 
 asm=[
@@ -316,7 +317,7 @@ ifDirectives = ['if','endif','else','elseif','ifdef','ifndef','iffileexist','iff
 mergeList = lambda a,b: [(a[i], b[i]) for i in range(min(len(a),len(b)))]
 makeHex = lambda x: '$'+x.to_bytes(((x.bit_length()|1  + 7) // 8),"big").hex()
 
-specialSymbols = ['sdasm','bank','randbyte','randword']
+specialSymbols = ['sdasm','bank','banksize','randbyte','randword','fileoffset']
 timeSymbols = ['year','month','day','hour','minute','second']
 
 specialSymbols+= timeSymbols
@@ -381,6 +382,16 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 return ''
             else:
                 return makeHex(bank)
+        elif s == 'banksize':
+            if bank == None:
+                return ''
+            else:
+                return str(bankSize)
+        elif s == 'fileoffset':
+            if bank:
+                return str(addr + bank * bankSize + headerSize)
+            else:
+                return str(addr + headerSize)
         elif s == 'randbyte':
             return makeHex(random.randrange(0x100))
         elif s == 'randword':
@@ -594,7 +605,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
     
     assembler.initialFolder = os.path.split(filename)[0]
     assembler.currentFolder = assembler.initialFolder
-    print(assembler.findFile('list.txt'))
 
     # Doing it this way removes the line endings
     lines = file.read().splitlines()
@@ -618,7 +628,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
     blockComment = 0
     
     if binFile:
-        binFile = findFile(binFile)
+        binFile = assembler.findFile(binFile)
         with open(binFile,'rb') as file:
             fileData = file.read()
     
@@ -819,7 +829,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 
                 data = line.split(" ",1)[1].strip()
                 data = getString(data)
-                if findFile(data):
+                if assembler.findFile(data):
                     ifData[ifLevel].bool = True
                     ifData[ifLevel].done = True
                 else:
@@ -862,10 +872,37 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             elif k == 'banksize':
                 bankSize = getValue(line.split(" ")[1].strip())
             elif k == 'bank':
-                bank = getValue(line.split(" ")[1].strip())
-#                if debug:
-#                    print('  Bank: {}'.format(bank))
-            
+                v = line.split(" ")[1].strip()
+                
+                bank = getValue(v)
+            elif k == 'inesprg':
+                out[4] = getValue(line.split(" ")[1].strip())
+            elif k == 'ineschr':
+                out[5] = getValue(line.split(" ")[1].strip())
+            elif k == 'inesmir':
+                v = getValue(line.split(" ")[1].strip())
+                out[6] = (out[6] & 0xfe) | v
+            elif k == 'inesbattery':
+                v = getValue(line.split(" ")[1].strip())
+                print(hex(out[6]))
+                out[6] = (out[6] & 0xfd) | v<<1
+                print(hex(out[6]))
+            elif k == 'inesfourscreen':
+                v = getValue(line.split(" ")[1].strip())
+                out[6] = (out[6] & 0xf7) | v<<3
+            elif k == 'inesmap':
+                v = getValue(line.split(" ")[1].strip())
+                out[6] = (out[6] & 0x0f) | (v & 0x0f)<<4
+                out[7] = (out[7] & 0x0f) | (v & 0xf0)
+                print(hex(v), hex(out[6]), hex(out[7]))
+                
+            elif k == 'insert':
+                v = getValue(line.split(" ")[1].strip())
+                fileOffset = addr + bank * bankSize + headerSize
+                
+                out = out[:fileOffset]+([fv] * v)+out[fileOffset:]
+                
+                print('insert', v, 'bytes.')
             elif k == 'seed':
                 v = getValue(line.split(" ")[1].strip())
                 random.seed(v)
@@ -903,23 +940,40 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 hide = True
             
             elif k == "incbin" or k == "bin":
-                filename = line.split(" ",1)[1].strip()
-                filename = getString(filename)
-                filename = findFile(filename)
+                l = line.split(" ",1)[1].strip()
                 
-                b=False
-                try:
-                    with open(filename, 'rb') as file:
-                        b = list(file.read())
-                except:
-                    print("Could not open file.")
-                if b:
-                    fileList.append(filename)
-                    lines = lines[:i]+['']+['setincludefolder '+assembler.currentFolder]+lines[i+1:]
+                offset = 0
+                nBytes = -1
+                if ',' in l:
+                    l = l.split(',')
+                    filename = l[0].strip()
+                    offset = getValue(l[1])
+                    if len(l)>2:
+                        nBytes = getValue(l[2])
+                    print("offset: ", offset)
+                else:
+                    filename = l
+                
+                filename = getString(filename)
+                filename = assembler.findFile(filename)
+                
+                if filename:
+                    b=False
+                    try:
+                        with open(filename, 'rb') as file:
+                            file.seek(offset)
+                            b = list(file.read(nBytes))
+                    except:
+                        print("Could not open file.")
+                    if b:
+                        fileList.append(filename)
+                        lines = lines[:i]+['']+['setincludefolder '+assembler.currentFolder]+lines[i+1:]
+                else:
+                    print("File not found.")
             elif k == "include" or k=="incsrc":
                 filename = line.split(" ",1)[1].strip()
                 filename = getString(filename)
-                filename = findFile(filename)
+                filename = assembler.findFile(filename)
                 
                 newLines = False
                 try:
