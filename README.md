@@ -1,6 +1,11 @@
 # SpiderDaveAsm
 ASM 6502 Assembler made in Python
 
+------------------------------------------------------------
+WARNING: This project is currently in {} stage.
+Some features may be incomplete, have bugs, or change.
+------------------------------------------------------------
+
 
 ## Command line ##
 

@@ -1,11 +1,17 @@
 """
+
+Bugs/Broken:
+    * anonymous labels are not working properly
+
 ToDo:
     * allow strings in instructions:
         lda "A"-$4b
     * create large test .asm
     * text mapping
+        - named textmaps, alternate formats
     * option to automatically localize labels in macros
     * rept ... endr
+    * get standalone command line switches working
 """
 
 
@@ -13,12 +19,14 @@ import math, os, sys
 from . import include
 Cfg = include.Cfg
 import time
-from datetime import datetime
+from datetime import date
 
 import pathlib
 import operator
 
 import random
+
+from textwrap import dedent
 
 #try: import numpy as np
 #except: np = False
@@ -26,6 +34,25 @@ import random
 # need better code for slicing with numpy.
 # just disable for now.
 np = False
+
+version = dict(
+    stage = 'alpha',
+    buildDate =  date.today().strftime('%Y.%m.%d'),
+    author = 'SpiderDave',
+    url = 'https://github.com/SpiderDave/SpiderDaveAsm',
+)
+version.update(version = 'v{} {}'.format(version.get('buildDate'), version.get('stage')))
+
+def flattenList(k):
+    result = list()
+    for i in k:
+        if isinstance(i,list):
+            #The isinstance() function checks if the object (first argument) is an 
+            #instance or subclass of classinfo class (second argument)
+            result.extend(flattenList(i)) #Recursive call
+        else:
+            result.append(i)
+    return result
 
 def inScriptFolder(f):
     return os.path.join(os.path.dirname(os.path.realpath(__file__)),f)
@@ -150,6 +177,7 @@ directives = [
     '_find',
     'seed','outputfile','listfile','textmap','text','insert',
     'inesprg','ineschr','inesmir','inesmap','inesbattery','inesfourscreen',
+    'orgpad',
 ]
 
 asm=[
@@ -345,6 +373,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = False, conf
     cfg.setDefault('main', 'varOpen', '{')
     cfg.setDefault('main', 'varClose', '}')
     cfg.setDefault('main', 'labelSuffix', ':')
+    cfg.setDefault('main', 'orgPad', 0)
 
     # save configuration so our defaults can be changed
     cfg.save()
@@ -408,9 +437,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
     
     def makeList(item):
         if type(item)!=list:
-            return [item]
+            return flattenList([item])
         else:
-            return item
+            return flattenList(item)
     
     def isImmediate(v):
         if v.startswith("#"):
@@ -471,6 +500,36 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             except:
                 return 0,0
         
+#        if v.startswith('"') and '"' in v[1:]:
+            # Check for a comma after closing quotes
+#            quotePos = v.find('"', 1)
+#            if quotePos!=-1 and quotePos==len(v)-1:
+#                print(v)
+#                print('*'*20)
+                # string starts and ends with quotes
+#                v = list(bytes(v[1:-1], 'utf-8'))
+#                l=len(v)
+#                return v, l
+            
+#            commaPos = v.find(',',quotePos)
+            
+#            l,r = False, False
+#            if commaPos == -1:
+                # No comma found
+#                l = v[1:quotePos]
+#                r = v[quotePos+1:]
+
+#                v = list(bytes(l, 'utf-8'))
+#                r = getValue(r)
+                
+#                print('l=',l,'r=',r)
+
+#            else:
+                # comma found
+#                l = v[1:commaPos]
+#                r = v[commaPos+1:]
+                
+
         if v.startswith('"') and v.endswith('"'):
             v = list(bytes(v[1:-1], 'utf-8'))
             l=len(v)
@@ -594,14 +653,23 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
     varOpenClose = mergeList(varOpen,varClose)
     labelSuffix = makeList(cfg.getValue('main', 'labelSuffix'))
     
+    ## set below instead
+    # orgPad = int(cfg.getValue('main', 'orgPad'))
+    
     try:
         file = open(filename, "r")
     except:
         print("Error: could not open file.")
         exit()
     
-    print('sdasm')
-    print(filename)
+    print('sdasm {} by {}\n{}'.format(version.get('version'), version.get('author'), version.get('url')))
+    print(dedent("""
+    ------------------------------------------------------------
+    WARNING: This project is currently in {} stage.
+    Some features may be incomplete, have bugs, or change.
+    ------------------------------------------------------------
+    """.format(version.get('stage'))))
+    print('assembling {}'.format(filename))
     
     assembler.initialFolder = os.path.split(filename)[0]
     assembler.currentFolder = assembler.initialFolder
@@ -640,7 +708,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         noOutput = False
         
         macro = False
-        currentAddress = addr
+        currentAddress = 0
         mode = ""
         showAddress = False
         out = []
@@ -652,6 +720,13 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             out = np.array([],dtype="B")
         
         outputText = ''
+
+        outputText+= 'Assembled with sdasm\n'
+        outputText+= '{1}{0}{1}{0}{2}{0}{3}\n'.format(' ', '_'*5, '_'*25, '_'*40)
+        outputText+= '{1:5}{0}{2:5}{0}{3:25}{0}{4}\n'.format('|','file','prg',' bytes',' asm code')
+        outputText+= '{1:5}{0}{2:5}{0}{3:25}{0}{4}\n'.format('|','offst','addr','','')
+        outputText+= '{1}{0}{1}{0}{2}{0}{3}\n'.format('|', '-'*5, '-'*25, '-'*40)
+
         startAddress = False
 #        assembler.currentFolder = ''
 #        assembler.currentFolder = os.path.split(filename)[0]
@@ -662,6 +737,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         headerSize = 0
         bankSize = 0x10000
         bank = None
+        orgPad = int(cfg.getValue('main', 'orgPad'))
         
         fileList = []
         print('pass {}...'.format(passNum))
@@ -895,7 +971,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 out[6] = (out[6] & 0x0f) | (v & 0x0f)<<4
                 out[7] = (out[7] & 0x0f) | (v & 0xf0)
                 print(hex(v), hex(out[6]), hex(out[7]))
-                
+            elif k == 'orgpad':
+                orgPad = getValue(line.split(" ")[1].strip())
             elif k == 'insert':
                 v = getValue(line.split(" ")[1].strip())
                 fileOffset = addr + bank * bankSize + headerSize
@@ -1054,25 +1131,34 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 currentAddress = addr
                 noOutput = False
             
-            elif k == 'base':
+            elif k == '_base':
                 addr = getValue(line.split(' ',1)[1])
                 if startAddress == False:
                     startAddress = addr
                 currentAddress = addr
-            
+            elif k == 'base' or (k == 'org' and startAddress==False):
+                v = getValue(line.split(' ',1)[1])
+                if startAddress == False:
+                    startAddress = v
+                currentAddress = v
+                
             elif k == 'org':
-                addr = getValue(line.split(' ',1)[1])
-                
-                currentAddress = addr
-                
-                if bank != None:
-                    addr = addr % bankSize
-                
-                if startAddress==False:
-                    startAddress = addr
+                v = getValue(line.split(' ',1)[1])
+
+                if (orgPad == 1) and (startAddress!=False):
                     k = 'pad'
-                    line = 'pad ${:04x}'.format(addr)
-                
+                else:
+                    addr = addr + (v-currentAddress)
+                    currentAddress += (v-currentAddress)
+                    
+                    if bank != None:
+                        addr = addr % bankSize
+                    
+                    if startAddress==False:
+                        startAddress = addr
+                        k = 'pad'
+                        line = 'pad ${:04x}'.format(addr)
+
             if k == 'pad':
                 data = line.split(' ',1)[1]
                 
@@ -1139,6 +1225,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             elif k == 'db' or k=='byte' or k == 'byt' or k == 'dc.b':
                 values = line.split(' ',1)[1]
                 values = getValue(values)
+                
                 b = b + makeList(values)
                 
 #                for v in [getValue(x) for x in values]:
@@ -1212,7 +1299,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                             op = getOpWithMode(k, "Relative")
                 if op:
                     if op.mode == 'Relative' and passNum==2:
-                        if getValue(v) > currentAddress+op.length:
+                        if getValue(v) == currentAddress+op.length:
+                            v = 0
+                        elif getValue(v) > currentAddress+op.length:
                             v = getValue(v) - (currentAddress+op.length)
                             v='${:02x}'.format(v)
                         else:
@@ -1274,10 +1363,26 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
 #                            errorText = 'byte out of range:\n    '+line
                     
                     if bank == None:
-                        if np:
-                            out = np.append(out, np.array(b, dtype='B'))
-                        else:
-                            out = out + b
+#                        if np:
+#                            out = np.append(out, np.array(b, dtype='B'))
+#                        else:
+#                            out = out + b
+                        fileOffset = addr
+                        if fileOffset == len(out):
+                            # We're in the right spot, just append
+                            if np:
+                                out = np.append(out, np.array(b, dtype='B'))
+                            else:
+                                out = out + b
+                        elif fileOffset>len(out):
+                            fv = fillValue
+                            if np:
+                                out = np.append(out, np.array(([fv] * (fileOffset-len(out))), dtype='B'))
+                                out = np.append(out, np.array(b, dtype='B'))
+                            else:
+                                out = out + ([fv] * (fileOffset-len(out))) + b
+                        elif fileOffset<len(out):
+                            out = out[:fileOffset]+b+out[fileOffset+len(b):]
                     else:
                         #fileOffset = addr % bankSize + bank*bankSize+headerSize
                         fileOffset = addr + bank * bankSize + headerSize
@@ -1304,10 +1409,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             if passNum == 2 and not hide:
                 nBytes = cfg.getValue('main', 'list_nBytes')
                 
-                #outputText+='{:05x} '.format(len(out)-len(b))
-                
+                fileOffset = getValue('fileoffset')-len(b)
+                outputText+="{:05X} ".format(fileOffset)
+
                 if startAddress:
-                    outputText+="{:05X} ".format(currentAddress)
+                    
+                    outputText+="{:05X} ".format(currentAddress-len(b))
                 else:
                     outputText+=' '*6
                 
