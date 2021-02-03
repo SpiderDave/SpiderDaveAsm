@@ -1,10 +1,5 @@
 """
 Bugs/Issues:
-    * symbol recursion issue:
-        **fixed? needs testing**
-        symbol = symbol + 1     ; does not work
-        symbol = {symbol} +1    ; works
-    * rept recursion
     * changing output on first pass affects second pass
         for example, using inesprg
 ToDo:
@@ -19,8 +14,10 @@ ToDo:
     * segment and related directives
     * line numbers in errors
     * handle negative numbers differently?
+    * implement Asar's stddefines.txt
 """
 
+from array import array
 
 import math, os, sys
 try:
@@ -149,6 +146,12 @@ def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False,
     
     return ret
 
+def makeList(item):
+    if type(item)!=list:
+        return flattenList([item])
+    else:
+        return flattenList(item)
+
 def flattenList(k):
     result = list()
     for i in k:
@@ -210,7 +213,8 @@ class Assembler():
     currentPalette = [0x0f,0x01,0x11,0x30]
     stripHeader = False
     namespace = ''
-    quotes = ('"""','"',"'")
+    #quotes = ('"""','"',"'")
+    quotes = False
     hidePrefix = '__hide__'
     caseSensitive = False
     Sprite8x16 = False
@@ -409,8 +413,8 @@ directives = [
     'inesprg','ineschr','inesmir','inesmap','inesbattery','inesfourscreen',
     'inesworkram','inessaveram','ines2',
     'orgpad','quit','incchr','chr','setpalette','loadpalette',
-    'rept','endr','endrept','nextrept','sprite8x16','export','diff',
-    'assemble',
+    'rept','endr','endrept','sprite8x16','export','diff',
+    'assemble'
 ]
 
 filters = [
@@ -598,7 +602,7 @@ makeHex = lambda x: '$'+x.to_bytes(((x.bit_length()|1  + 7) // 8),"big").hex()
 
 specialSymbols = [
     'sdasm','bank','banksize','chrsize','randbyte','randword','fileoffset',
-    'prgbanks','chrbanks','lastbank','lastchr','reptindex','mapper',
+    'prgbanks','chrbanks','lastbank','lastchr','mapper',
 ]
 
 timeSymbols = ['year','month','day','hour','minute','second']
@@ -635,6 +639,11 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = False, conf
     cfg.setDefault('main', 'lineSep', '')
     cfg.setDefault('main', 'clampdb', False)
     cfg.setDefault('main', 'caseSensitive', False)
+    cfg.setDefault('main', 'lineContinue', '\\')
+    cfg.setDefault('main', 'lineContinueComma', True)
+    cfg.setDefault('main', 'quotes', '\',","""')
+    
+    assembler.quotes = tuple(makeList(cfg.getValue('main', 'quotes')))
 
     # save configuration so our defaults can be changed
     cfg.save()
@@ -724,7 +733,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             #return makeHex(random.randrange(0x10000))
             return '${:04x}'.format(random.randrange(0x10000))
         elif s == 'reptindex':
-            return str(rept.index)
+            return str(symbols.get('reptindex', 0))
         elif s in timeSymbols:
             v = list(datetime.now().timetuple())[timeSymbols.index(s)]
         elif s in assembler.nesRegisters:
@@ -739,12 +748,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             return v
     def findFile(filename):
         return assembler.findFile(filename)
-    
-    def makeList(item):
-        if type(item)!=list:
-            return flattenList([item])
-        else:
-            return flattenList(item)
     
     def isImmediate(v):
         if v.startswith("#"):
@@ -1116,8 +1119,25 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
 
     # Doing it this way removes the line endings
     lines = file.read().splitlines()
+    
+    lineContinue = makeList(cfg.getValue('main', 'lineContinue'))
+    lineContinueComma = cfg.isTrue(cfg.getValue('main', 'lineContinueComma'))
+    
+    
+    for c in lineContinue:
+        joinLines = [i for i,x in enumerate(lines) if x.strip().endswith(c)]
+        for i in joinLines:
+            lines[i+1] = lines[i].rsplit(c,1)[0] + lines[i+1]
+            lines[i]= '_delete_this_'
+    if lineContinueComma:
+        joinLines = [i for i,x in enumerate(lines) if x.strip().endswith(',')]
+        for i in joinLines:
+            lines[i+1] = lines[i].rstrip() + ' ' + lines[i+1]
+            lines[i]= '_delete_this_'
+        lines = [x for i,x in enumerate(lines) if x!='_delete_this_']
+    
     originalLines = lines
-
+    
     symbols = Map()
     equ = Map()
     
@@ -1193,12 +1213,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         bankSize = 0x10000
         chrSize = 0x2000
         bank = None
-        rept = Map()
-        rept.status = False
-        rept.block = []
-        rept.count = 0
-        rept.index = 0
-        rept.depth = 0
+        symbols['reptindex'] = 0
         
         assembler.clearTextMap(all=True)
         
@@ -1250,14 +1265,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 line = line.split(assembler.hidePrefix,1)[1]
                 assembler.hideOutputLine = True
             
-            if rept.status == 'gather':
-                k = line.split(" ",1)[0].strip()
-                if k in ('endr','endrept'):
-                    pass
-                else:
-                    rept.block.append(line)
-                    line = ''
-                
             if lineSep:
                 line = [line]
                 for s in lineSep:
@@ -1747,20 +1754,25 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     assembler.errorLinePos = len(line.split(' ',1)[0])+1
                     errorText = 'file not found'
             elif k == 'rept':
-                rept.count = getValue(line.split(" ",1)[1].strip())
-                rept.index = 0
-                rept.block = []
-                rept.status = 'gather'
-                #print('rept depth',rept.depth)
-            elif k == 'nextrept':
-                rept.index += 1
-            elif k == 'endr':
-                rept.block.append(assembler.hidePrefix + 'nextrept')
-                
-                lines = lines[:i]+['']+ rept.block * rept.count + lines[i+1:]
-                
-                rept.block = []
-                rept.status = False
+                reptCount = getValue(line.split(" ",1)[1].strip())
+                startIndex = i
+                depth = 1
+                for j in range(i+1, len(lines)):
+                    l = lines[j]
+                    k = l.strip().split(" ",1)[0].strip().lower()
+                    if k == 'rept':
+                        depth += 1
+                    if k in ('endr','endrept'):
+                        depth -= 1
+                    if depth == 0:
+                        endIndex = j
+                        break
+                newLines = []
+                for c in range(reptCount):
+                    newLines.append( '{}reptindex = {}'.format(assembler.hidePrefix, c))
+                    for j in range(startIndex+1, endIndex):
+                        newLines.append(lines[j])
+                lines = lines[:startIndex+1] + newLines+ lines[endIndex+1:]
             elif k == 'assemble':
                 arg = line.split(' ',1)[1].strip()
                 arg = assembler.tokenize(arg)
@@ -1816,7 +1828,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 lines = lines[:i]+['']+['include {}/{}'.format(folder, x) for x in files]+lines[i+1:]
             
             elif k == 'print' and passNum == lastPass:
-                v = line.split(" ",1)[1].strip()
+                v = (line+' ').split(" ",1)[1].strip()
                 print(getString(v))
             elif k == 'warning' and passNum == lastPass:
                 v = line.split(" ",1)[1].strip()
@@ -2215,6 +2227,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     errorText= 'invalid bytes: '+str(b)
             
                 showAddress = True
+                #noOutput=True
                 if noOutput==False and passNum == lastPass:
                     
                     if bank == None:
@@ -2224,7 +2237,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                             if np:
                                 out = np.append(out, np.array(b, dtype='B'))
                             else:
-                                out = out + b
+                                #out = out + b
+                                out.extend(b)
                         elif fileOffset>len(out):
                             fv = fillValue
                             if np:
@@ -2233,7 +2247,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                             else:
                                 out = out + ([fv] * (fileOffset-len(out))) + b
                         elif fileOffset<len(out):
-                            out = out[:fileOffset]+b+out[fileOffset+len(b):]
+                            #out = out[:fileOffset]+b+out[fileOffset+len(b):]
+                            out[fileOffset:fileOffset+len(b)+1] = b
                     else:
                         #fileOffset = addr % bankSize + bank*bankSize+headerSize
                         fileOffset = addr + bank * bankSize + headerSize
@@ -2244,7 +2259,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                             if np:
                                 out = np.append(out, np.array(b, dtype='B'))
                             else:
-                                out = out + b
+                                #out = out + b
+                                out.extend(b)
                         elif fileOffset>len(out):
                             fv = fillValue
                             if np:
@@ -2253,7 +2269,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                             else:
                                 out = out + ([fv] * (fileOffset-len(out))) + b
                         elif fileOffset<len(out):
-                            out = out[:fileOffset]+b+out[fileOffset+len(b):]
+                            #out = out[:fileOffset]+b+out[fileOffset+len(b):]
+                            out[fileOffset:fileOffset+len(b)+1] = b
                 addr = addr + len(b)
                 currentAddress = currentAddress + len(b)
             
@@ -2298,6 +2315,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 print(originalLine)
                 print('Line time: ' + elapsed(lineTime))
         #print('pass {} time: {}'.format(passNum, elapsed(passTime)))
+        
+#        if passNum == lastPass:
+#            print('symbols: {}'.format(len(symbols)))
+#            print('\n'.join(symbols.keys()))
+            
+        
     
     # output:
     
