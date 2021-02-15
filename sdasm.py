@@ -130,7 +130,11 @@ def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False,
             for x in range(8):
                 
                 #c = list(px[xOffset+x+(t*8) % w,yOffset+ y + math.floor(t/(w/8))*8])
-                c = list(px[xOffset + x, yOffset + y + math.floor(t/(w/8))*8])
+                #print(xOffset,x,yOffset,y)
+                try:
+                    c = list(px[xOffset + x, yOffset + y + math.floor(t/(w/8))*8])
+                except:
+                    c = [0,0,0]
                 i = bestColorMatch(c, colors)
                 
                 tile[y] += (2**(7-x)) * (i%2)
@@ -156,9 +160,7 @@ def flattenList(k):
     result = list()
     for i in k:
         if isinstance(i,list):
-            #The isinstance() function checks if the object (first argument) is an 
-            #instance or subclass of classinfo class (second argument)
-            result.extend(flattenList(i)) #Recursive call
+            result.extend(flattenList(i))
         else:
             result.append(i)
     return result
@@ -409,7 +411,7 @@ directives = [
     'arch','table','loadtable','cleartable','mapdb','clampdb',
     'index','mem','bank','lastbank','banksize','chrsize','header','noheader','stripheader',
     'define', '_find',
-    'seed','outputfile','listfile','textmap','text','insert',
+    'seed','outputfile','listfile','textmap','text','insert','delete','truncate',
     'inesprg','ineschr','inesmir','inesmap','inesbattery','inesfourscreen',
     'inesworkram','inessaveram','ines2',
     'orgpad','quit','incchr','chr','setpalette','loadpalette',
@@ -1448,7 +1450,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     else:
                         ifData[ifLevel].bool = False
 
-
 #                if '!=' in data:
 #                    l,r = data.split('!=')
 #                    if ((getValue(l) == getValue(r)) and inv == False) or ((getValue(l) != getValue(r)) and inv == True):
@@ -1555,11 +1556,26 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 orgPad = getValue(line.split(" ")[1].strip())
             elif k == 'insert':
                 v = getValue(line.split(" ", 1)[1].strip())
-                fileOffset = addr + bank * bankSize + headerSize
                 fv = fillValue
-                out = out[:fileOffset]+([fv] * v)+out[fileOffset:]
+                if type(v) == list:
+                    fv = v[1]
+                    v = v[0]
+                fileOffset = addr + bank * bankSize + headerSize
+                #out = out[:fileOffset]+([fv] * v)+out[fileOffset:]
+                
+                out[fileOffset:fileOffset] = [fv] * v
+                
                 if debug:
                     print('insert', v, 'bytes.')
+            elif k == 'truncate':
+                fileOffset = addr + bank * bankSize + headerSize
+                del out[fileOffset:]
+            elif k == 'delete':
+                v = getValue(line.split(" ", 1)[1].strip())
+                fileOffset = addr + bank * bankSize + headerSize
+                del out[fileOffset:fileOffset+v]
+                if debug:
+                    print('delete', v, 'bytes.')
             elif k == 'seed':
                 v = getValue(line.split(" ")[1].strip())
                 random.seed(v)
@@ -1586,11 +1602,19 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     else:
                         assembler.setTextMapData(data[0], data[1])
             elif k == 'outputfile':
-                filename = getString(line.split(" ",1)[1].strip())
+                #filename = getString(line.split(" ",1)[1].strip())
+                
+                data = (line.split(" ",1)+[''])[1].strip()
+                filename = getValueAsString(data) or getString(data)
+                
                 if filename:
                     outputFilename = filename
             elif k == 'listfile':
-                filename = getString(line.split(" ",1)[1].strip())
+                #filename = getString(line.split(" ",1)[1].strip())
+
+                data = (line.split(" ",1)+[''])[1].strip()
+                filename = getValueAsString(data) or getString(data)
+
                 if filename.lower() in ('false','0','none', ''):
                     listFilename = False
                 else:
@@ -1925,9 +1949,11 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 a = getValue(data.split(',')[0])
                 #print('fillto {:05x} {:05x} {:05x} {}'.format(a, currentAddress, addr, bank))
                 if currentAddress <= a:
-                    b = b + ([fv] * (a-currentAddress))
+                    #b = b + ([fv] * (a-currentAddress))
+                    b.extend([fv] * (a-currentAddress))
                 else:
-                    b = b + ([fv] * (a-(addr+bank*bankSize)))
+                    #b = b + ([fv] * (a-(addr+bank*bankSize)))
+                    b.extend(([fv] * (a-(addr+bank*bankSize))))
             elif k == 'fill':
                 data = line.split(' ',1)[1]
                 
@@ -2248,7 +2274,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                                 out = out + ([fv] * (fileOffset-len(out))) + b
                         elif fileOffset<len(out):
                             #out = out[:fileOffset]+b+out[fileOffset+len(b):]
-                            out[fileOffset:fileOffset+len(b)+1] = b
+                            out[fileOffset:fileOffset+len(b)] = b
                     else:
                         #fileOffset = addr % bankSize + bank*bankSize+headerSize
                         fileOffset = addr + bank * bankSize + headerSize
@@ -2270,7 +2296,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                                 out = out + ([fv] * (fileOffset-len(out))) + b
                         elif fileOffset<len(out):
                             #out = out[:fileOffset]+b+out[fileOffset+len(b):]
-                            out[fileOffset:fileOffset+len(b)+1] = b
+                            out[fileOffset:fileOffset+len(b)] = b
                 addr = addr + len(b)
                 currentAddress = currentAddress + len(b)
             
