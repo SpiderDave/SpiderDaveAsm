@@ -15,6 +15,8 @@ ToDo:
     * line numbers in errors
     * handle negative numbers differently?
     * implement Asar's stddefines.txt
+    * handle relative unlabeled jumps
+        ex: bcc $79
 """
 
 from array import array
@@ -2043,7 +2045,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     if v.startswith(assembler.quotes):
                         values[i] = getValue(v, mode='textmap')
                     else:
-                        values[i] = getValue(v)
+                        if k == 'text':
+                            values[i] = getValue(v, mode='textmap')
+                        else:
+                            values[i] = getValue(v)
                 
                 values = flattenList(values)
                 
