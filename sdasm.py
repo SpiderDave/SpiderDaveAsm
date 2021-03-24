@@ -48,7 +48,7 @@ except Exception as e:
     PIL = False
     print('***', str(e))
 
-
+import numpy
 #try: import numpy as np
 #except: np = False
 
@@ -79,6 +79,9 @@ defaultPalette=[
     [252, 216, 168],[252, 228, 160],[224, 252, 160],[168, 240, 188],
     [176, 252, 204],[156, 252, 240],[196, 196, 196],[0, 0, 0],[0, 0, 0],
 ]
+
+def makeSurePathExists(path):
+    pathlib.Path(path).mkdir(parents=True, exist_ok=True)
 
 def elapsed(start, end=False):
     if not end:
@@ -134,7 +137,8 @@ def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False,
                 #c = list(px[xOffset+x+(t*8) % w,yOffset+ y + math.floor(t/(w/8))*8])
                 #print(xOffset,x,yOffset,y)
                 try:
-                    c = list(px[xOffset + x, yOffset + y + math.floor(t/(w/8))*8])
+                    #c = list(px[xOffset + x, yOffset + y + math.floor(t/(w/8))*8])
+                    c = list(px[xOffset + x, yOffset + y])
                 except:
                     c = [0,0,0]
                 i = bestColorMatch(c, colors)
@@ -147,10 +151,39 @@ def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False,
             yOffset += 8
         for i in range(16):
             out.append(tile[i])
-    
     ret = out
     
     return ret
+
+def exportCHRDataToImage(filename="export.png", fileData=False, colors=(0x0f,0x21,0x11,0x01)):
+    colors=assembler.currentPalette
+    
+    if not fileData:
+        print('no filedata')
+        fileData = "\x00" * 0x1000
+    
+    if type(fileData) is str:
+        fileData = [ord(x) for x in fileData]
+        
+    img=Image.new("RGB", size=(128,128))
+    
+    #a = np.asarray(img).copy()
+    a = numpy.asarray(img).copy()
+    
+    for tile in range(256):
+        for y in range(8):
+            for x in range(8):
+                c=0
+                x1=tile%16*8+(7-x)
+                y1=math.floor(tile/16)*8+y
+                if (fileData[tile*16+y] & (1<<x)):
+                    c=c+1
+                if (fileData[tile*16+y+8] & (1<<x)):
+                    c=c+2
+                a[y1][x1] = assembler.palette[colors[c]]
+    
+    img = Image.fromarray(a)
+    img.save(filename)
 
 def makeList(item):
     if type(item)!=list:
@@ -418,13 +451,14 @@ directives = [
     'inesworkram','inessaveram','ines2',
     'orgpad','quit','incchr','chr','setpalette','loadpalette',
     'rept','endr','endrept','sprite8x16','export','diff',
-    'assemble'
+    'assemble', 'exportchr',
 ]
 
 filters = [
     'shuffle','getbyte','getword','choose',
     'format','random','range','textmap',
-    'evalvar','pop','astext',
+    'evalvar','pop','astext','len',
+    'fileexist', 'nfileexist',
 ]
 
 asm=[
@@ -606,7 +640,7 @@ makeHex = lambda x: '$'+x.to_bytes(((x.bit_length()|1  + 7) // 8),"big").hex()
 
 specialSymbols = [
     'sdasm','bank','banksize','chrsize','randbyte','randword','fileoffset',
-    'prgbanks','chrbanks','lastbank','lastchr','mapper',
+    'prgbanks','chrbanks','lastbank','lastchr','mapper','binfile',
 ]
 
 timeSymbols = ['year','month','day','hour','minute','second']
@@ -718,6 +752,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         elif s == 'chrsize':
             return str(chrSize)
         elif s == 'prgbanks':
+            if passNum != lastPass:
+                return 0
             return str(out[4])
         elif s == 'lastbank':
             return str(out[4]-1)
@@ -738,6 +774,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             return '${:04x}'.format(random.randrange(0x10000))
         elif s == 'reptindex':
             return str(symbols.get('reptindex', 0))
+        elif s == 'binFile':
+            return binFile or 0
         elif s in timeSymbols:
             v = list(datetime.now().timetuple())[timeSymbols.index(s)]
         elif s in assembler.nesRegisters:
@@ -785,6 +823,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 pass
             
             return out[a],1
+        if mode == 'len':
+            v, l = getValueAndLength(v)
+            return l, 1
         if mode == 'choose':
             v = v.split(',')
             random.shuffle(v)
@@ -829,6 +870,18 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             v = random.randrange(r1,r2)
             l = 1
             return v,l
+        
+        if mode == 'fileexist':
+            if assembler.findFile(getString(v)):
+                return 1,1
+            else:
+                return 0,1
+        
+        if mode == 'nfileexist':
+            if assembler.findFile(getString(v)):
+                return 0,1
+            else:
+                return 1,1
         
         if type(v) is list:
             if mode == 'shuffle':
@@ -1106,7 +1159,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         file = open(filename, "r")
     except:
         print("Error: could not open file.")
-        exit()
+        return False
     
     print('sdasm {} by {}\n{}'.format(version.get('version'), version.get('author'), version.get('url')))
     print(dedent("""
@@ -1307,6 +1360,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                                 fmtEnd = line.find(':',fmtStart)
                                 fmtString = '{:' + line[fmtStart:fmtEnd] + '}'
                                 l = getValue(line[fmtEnd+1:end])
+                                
+                                if type(l) is list:
+                                    print("can't format a list")
+                                
                                 l = fmtString.format(l)
                             else:
                                 l = getValue(line[start+2+len(item):end], mode=item)
@@ -1489,6 +1546,15 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             elif k == 'header':
                 headerSize = 16
                 assembler.stripHeader = False
+                
+                # Make sure there's a bare bones header if
+                # it doesn't exist.
+                header = (list(out[:16]) + [0] * 16)[:16]
+                header[0:3] = list(bytearray("NES", 'utf8')) + [0x1a]
+                if header[4] == 0:
+                    # Don't let it have zero prg
+                    header[4] = 1
+                out[0:16] = header
             elif k == 'stripheader':
                 headerSize = 16
                 assembler.stripHeader = True
@@ -1517,7 +1583,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 # bank resets
                 #currentAddress = chrSize*v
                 currentAddress = 0
-                addr = chrSize*v
+                #addr = chrSize*v
                 addr = getValue('prgbanks') * 0x4000 + chrSize*v + headerSize
             elif k == 'setpalette':
                 v = getValue(line.split(" ",1)[1].strip())
@@ -1536,7 +1602,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 v = getValue(line.split(" ")[1].strip())
                 out[6] = (out[6] & 0xfe) | v
             elif k == 'inesbattery':
-                v = getValue(line.split(" ")[1].strip())
+                if k.strip() == line.strip().lower():
+                    v = 1
+                else:
+                    v = getValue(line.split(" ")[1].strip())
                 out[6] = (out[6] & 0xfd) | v<<1
             elif k == 'ines2':
                 v = getValue(line.split(" ")[1].strip())
@@ -1690,6 +1759,21 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                         errorText = 'file not found'
                 else:
                     errorText = 'PIL not available.'
+            elif k == 'exportchr':
+                if passNum == lastPass:
+                    l = line.split(" ",1)[1].strip()
+                    l = l.split(',')
+                    exportSymbol = l[0].strip()
+                    filename = getString(l[1].strip())
+                    
+                    try:
+                        makeSurePathExists(os.path.dirname(filename))
+                        
+                        v = getValue(exportSymbol)
+                        exportCHRDataToImage(filename, v)
+                        print('{} written.'.format(filename))
+                    except:
+                        print('exportchr error')
             elif k == 'export':
                 if passNum == lastPass:
                     l = line.split(" ",1)[1].strip()
@@ -1697,6 +1781,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     exportSymbol = l[0].strip()
                     filename = getString(l[1].strip())
                     try:
+                        makeSurePathExists(os.path.dirname(filename))
                         with open(filename, 'wb') as file:
                             file.write(bytes(getValue(exportSymbol)))
                             print('{} written.'.format(filename))
