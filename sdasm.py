@@ -48,13 +48,14 @@ except Exception as e:
     PIL = False
     print('***', str(e))
 
-import numpy
-#try: import numpy as np
-#except: np = False
+try: import numpy as np
+except: np = False
 
+if np:
+    usenp =True
 # need better code for slicing with numpy.
 # just disable for now.
-np = False
+usenp = False
 
 version = dict(
     stage = 'alpha',
@@ -1256,7 +1257,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         if type(fileData) != bool:
             out = list(fileData)
         
-        if np:
+        if usenp:
             out = np.array([],dtype="B")
         
         outputText = ''
@@ -2350,14 +2351,14 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                         fileOffset = addr
                         if fileOffset == len(out):
                             # We're in the right spot, just append
-                            if np:
+                            if usenp:
                                 out = np.append(out, np.array(b, dtype='B'))
                             else:
                                 #out = out + b
                                 out.extend(b)
                         elif fileOffset>len(out):
                             fv = fillValue
-                            if np:
+                            if usenp:
                                 out = np.append(out, np.array(([fv] * (fileOffset-len(out))), dtype='B'))
                                 out = np.append(out, np.array(b, dtype='B'))
                             else:
@@ -2372,14 +2373,14 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                         if fileOffset == len(out):
                             # We're in the right spot, just append
 
-                            if np:
+                            if usenp:
                                 out = np.append(out, np.array(b, dtype='B'))
                             else:
                                 #out = out + b
                                 out.extend(b)
                         elif fileOffset>len(out):
                             fv = fillValue
-                            if np:
+                            if usenp:
                                 out = np.append(out, np.array(([fv] * (fileOffset-len(out))), dtype='B'))
                                 out = np.append(out, np.array(b, dtype='B'))
                             else:
