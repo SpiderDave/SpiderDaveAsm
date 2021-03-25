@@ -1911,7 +1911,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 filename = getString(filename)
                 filename = assembler.findFile(filename)
                 if filename:
-                    ipsData = np.fromfile(f, dtype='B')
+                    ipsData = np.fromfile(filename, dtype='B')
                     out = ips.applyIps(ipsData, out) or out
                 else:
                     errorText = 'file not found'
