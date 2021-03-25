@@ -27,6 +27,7 @@ try:
 except:
     import include
 Cfg = include.Cfg
+ips = include.ips
 import time
 from datetime import date
 
@@ -168,8 +169,7 @@ def exportCHRDataToImage(filename="export.png", fileData=False, colors=(0x0f,0x2
         
     img=Image.new("RGB", size=(128,128))
     
-    #a = np.asarray(img).copy()
-    a = numpy.asarray(img).copy()
+    a = np.asarray(img).copy()
     
     for tile in range(256):
         for y in range(8):
@@ -452,7 +452,7 @@ directives = [
     'inesworkram','inessaveram','ines2',
     'orgpad','quit','incchr','chr','setpalette','loadpalette',
     'rept','endr','endrept','sprite8x16','export','diff',
-    'assemble', 'exportchr',
+    'assemble', 'exportchr', 'ips',
 ]
 
 filters = [
@@ -873,12 +873,14 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             return v,l
         
         if mode == 'fileexist':
+            v = getValueAsString(v) or getString(v)
             if assembler.findFile(getString(v)):
                 return 1,1
             else:
                 return 0,1
         
         if mode == 'nfileexist':
+            v = getValueAsString(v) or getString(v)
             if assembler.findFile(getString(v)):
                 return 0,1
             else:
@@ -909,14 +911,18 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
 #            v = v.split(",x")[0]
 #        if v.endswith(",y"):
 #            v = v.split(",y")[0]
+        
         if v.startswith("(") and v.endswith(")"):
             v = v[1:-1]
         if '(' in v and ')' in v:
-            result = re.findall('\(([^\(].*?)\)', v)
-            if result:
-                for item in result:
-                    item = '('+item+')'
-                    v = v.replace(item, str(getValue(item)))
+            if v.startswith(assembler.quotes) and v.endswith(assembler.quotes):
+                pass
+            else:
+                result = re.findall('\(([^\(].*?)\)', v)
+                if result:
+                    for item in result:
+                        item = '('+item+')'
+                        v = v.replace(item, str(getValue(item)))
         if v=='':
             return 0,0
         
@@ -1254,7 +1260,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         showAddress = False
         out = []
         
-        if type(fileData) != bool:
+        
+        if type(fileData) != bool and fileData != None:
             out = list(fileData)
         
         if usenp:
@@ -1838,7 +1845,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 else:
                     filename = l
                 
-                filename = getString(filename)
+                filename = getValueAsString(filename) or getString(filename)
+                
+                #filename = getString(filename)
+                
                 filename = assembler.findFile(filename)
                 
                 if errorText:
@@ -1894,6 +1904,15 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 filename = assembler.findFile(filename)
                 if filename:
                     assemble(filename, outputFilename = 'output.bin', listFilename = False, configFile=False, fileData=False, binFile=False)
+                else:
+                    errorText = 'file not found'
+            elif k == 'ips' and passNum == lastPass:
+                filename = line.split(" ",1)[1].strip()
+                filename = getString(filename)
+                filename = assembler.findFile(filename)
+                if filename:
+                    ipsData = np.fromfile(f, dtype='B')
+                    out = ips.applyIps(ipsData, out) or out
                 else:
                     errorText = 'file not found'
             elif k == 'include' or k == 'include?' or k=='incsrc' or k == 'require':
