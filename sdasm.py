@@ -1334,11 +1334,14 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 line = [line]
                 for s in lineSep:
                     line = flattenList([l.split(s) for l in line])
-            
+                
                 if len(line) > 1:
-                    #print(line)
-                    lines = lines[:i]+['']+line[1:]+lines[i+1:]
-                line = line[0]
+                    lines[i+1:i+1] = line
+                    line = ''
+                    assembler.hideOutputLine = True
+                else:
+                    line = line[0]
+                
             
             # "EQU" replacement
             for item in equ:
@@ -1797,8 +1800,11 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                         print('export error')
             elif k == 'diff':
                 if passNum == lastPass:
-                    filename = line.split(" ",1)[1].strip()
-                    filename = getString(filename)
+                    arg = line.split(' ',1)[1].strip()
+                    arg = assembler.tokenize(arg)
+                    
+                    filename = arg[0]
+                    filename = getValueAsString(filename) or getString(filename)
                     filename = assembler.findFile(filename)
                     if filename:
                         with open(filename, 'rb') as file:
@@ -1822,9 +1828,22 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                                 if n>0:
                                     diffOut += '\n'
                                 n = 0
-                        print(diffOut)
+                        if len(arg)>1:
+                            filename = arg[1]
+                            filename = getValueAsString(filename) or getString(filename)
+                            try:
+                                makeSurePathExists(os.path.dirname(filename))
+                                with open(filename, 'w') as file:
+                                    file.write(diffOut)
+                                    print('{} written.'.format(filename))
+                            except:
+                                errorText = 'export error'
+                        else:
+                            print(diffOut)
+                        
                     else:
-                        print('Could not open file')
+                        errorText = 'file not found'
+                        assembler.errorLinePos = len(line.split(' ',1)[0])+1
             elif k == 'incbin' or k == 'bin':
                 l = line.split(" ",1)[1].strip()
                 
@@ -1905,6 +1924,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 if filename:
                     assemble(filename, outputFilename = 'output.bin', listFilename = False, configFile=False, fileData=False, binFile=False)
                 else:
+                    assembler.errorLinePos = len(line.split(' ',1)[0])+1
                     errorText = 'file not found'
             elif k == 'ips' and passNum == lastPass:
                 filename = line.split(" ",1)[1].strip()
@@ -1914,6 +1934,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     ipsData = np.fromfile(filename, dtype='B')
                     out = ips.applyIps(ipsData, out) or out
                 else:
+                    assembler.errorLinePos = len(line.split(' ',1)[0])+1
                     errorText = 'file not found'
             elif k == 'include' or k == 'include?' or k=='incsrc' or k == 'require':
                 filename = line.split(" ",1)[1].strip()

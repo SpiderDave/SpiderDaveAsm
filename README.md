@@ -547,6 +547,23 @@ export
     export foobar, "foobar.dat"
 ```
     
+diff
+    
+    Generate a diff between the current data and a file.
+    
+```
+    diff original.nes               ; display differences as asm data
+    diff original.nes, "data.asm"   ; output differences to data.asm
+```
+    
+ips
+    
+    Apply IPS patch.
+    
+```
+    ips "patch.ips"                 ; apply ips patch.
+```
+    
 print
     
     Print a message
