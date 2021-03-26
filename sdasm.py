@@ -1576,7 +1576,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 # Make sure there's a bare bones header if
                 # it doesn't exist.
                 header = (list(out[:16]) + [0] * 16)[:16]
-                header[0:3] = list(bytearray("NES", 'utf8')) + [0x1a]
+                header[0:4] = list(bytearray("NES", 'utf8')) + [0x1a]
                 if header[4] == 0:
                     # Don't let it have zero prg
                     header[4] = 1
@@ -1944,7 +1944,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             elif k == 'gg':
                 arg = line.split(' ',1)[1].strip()
                 gg = GG.getGG(line.split(' ',1)[1].strip())
-                print(gg)
+                
                 offset = gg.get('address') + headerSize
                 while True:
                     if offset>len(out):
@@ -2603,7 +2603,7 @@ if __name__ == '__main__':
     outputFilename = args.outputfile
     listFilename = args.l
     configFile = args.cfg
-    binFile = args.bin # not implemented
+    binFile = args.bin
     
     #print(args)
     assemble(filename, outputFilename = outputFilename, listFilename = listFilename, configFile = configFile, binFile = binFile)
