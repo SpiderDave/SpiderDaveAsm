@@ -145,17 +145,27 @@ Line Continuation:
 ```
     
     format
-        format to a string
+        Format to a string
     
 ```
     print {$04x:99} ; prints $0063.
 ```
     
     textmap
-        apply textmap to a string
+        Apply textmap to a string
     
 ```
     db {textmap:"HELLO"} ; Works the same as text "HELLO"
+```
+    
+    astext
+        Force value to format value as text.  Useful if you have a symbol displaying as an array.
+    
+```
+    test = "hello"
+    print test          ; prints "test"
+    print {test}        ; prints "[104, 101, 108, 108, 111]"
+    print {astext:test} ; prints "hello"
 ```
     
 ## Special Symbols ##
@@ -290,6 +300,15 @@ pad / fillto
 ```
     pad $FFFA
     pad $FFFA, $ea
+```
+
+fill
+    
+    Fill memory with specified number of bytes.  A fill value may also be specified.
+    
+```
+    fill $20        ; output $20 bytes using current fillvalue
+    fill $20, $ff   ; output $20 bytes using $ff
 ```
 
 align
@@ -520,6 +539,19 @@ cleartable
 ```
     cleartable
     textmap clear   ; This does the same thing as above
+```
+    
+textmap
+    
+    Create a textmap.
+    
+```
+    textmap set title       ; Set current textmap to "title"
+    textmap clear           ; clear current textmap
+    textmap abcd 00010203   ; Map characters a,b,c,d to $00,$01,$02,$03
+    textmap 0...9 00        ; Map characters from 0 to 9 to tiles starting at $00
+    textmap A...Z 0a        ; Map characters A-Z to tiles starting at $0a
+    textmap space 24        ; Map a space to $24
 ```
     
 outputfile
