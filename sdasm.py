@@ -335,6 +335,7 @@ class Assembler():
             if txt.startswith(quote):
                 q = quote
                 break
+        
         n1=0
         if q:
             n1 = txt.find(q,len(q))+len(q)
@@ -352,7 +353,15 @@ class Assembler():
         #print("Mapping text:", text)
         textMap = self.textMap.get(self.currentTextMap, {})
         
-        return [textMap.get(x, ord(x)) for x in text]
+#        try:
+#            ret = [textMap.get(x, ord(x)) for x in text]
+#        except:
+#            print('bad textmap data')
+#            ret = [0 for x in text]
+#            return ret
+        
+        ret = [textMap.get(x, ord(x)) for x in text]
+        return ret
     def setTextMap(self, name):
         self.currentTextMap = name
     def getTextMap(self):
@@ -488,6 +497,7 @@ filters = [
     'format','random','range','textmap',
     'evalvar','pop','astext','len',
     'fileexist', 'nfileexist','py',
+    'concat',
 ]
 
 autoFilters = {
@@ -677,6 +687,7 @@ makeHex = lambda x: '$'+x.to_bytes(((x.bit_length()|1  + 7) // 8),"big").hex()
 specialSymbols = [
     'sdasm','bank','banksize','chrsize','randbyte','randword','fileoffset',
     'prgbanks','chrbanks','lastbank','lastchr','mapper','binfile','namespace',
+    'vectornmi','vectorreset','vectorirq',
 ]
 
 timeSymbols = ['year','month','day','hour','minute','second']
@@ -774,6 +785,25 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 s=s[len(q):-len(q)]
                 return s
         return s
+    def getSymbolInfo(symbol):
+        symbol = symbol.strip()
+        # check for a symbol and return cannoncial name if found.
+        ns = assembler.namespace[-1]
+        
+        ret = Map()
+        ret.namespace = ns
+        
+        if ns != '':
+            ns = ns + namespaceSymbol
+        
+        ret.update(key = assembler.lower(ns + symbol))
+        ret.update(baseKey = assembler.lower(symbol))
+        
+        if symbol in symbols:
+            ret.update(value = symbols.get(ret.get('key')))
+            return ret
+        else:
+            return
     def nsSymbol(s):
         ns = assembler.namespace[-1]
         if ns != '':
@@ -821,6 +851,15 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             return str(symbols.get('reptindex', 0))
         elif s == 'binFile':
             return binFile or 0
+        elif s == 'vectorreset':
+            fileOffset = 0xfffa - 0x8000 - (currentAddress-startAddress) + bank * bankSize + headerSize
+            return '${:02x}{:02x}'.format(out[fileOffset+1], out[fileOffset])
+        elif s == 'vectornmi':
+            fileOffset = 0xfffc - 0x8000 - (currentAddress-startAddress) + bank * bankSize + headerSize
+            return '${:02x}{:02x}'.format(out[fileOffset+1], out[fileOffset])
+        elif s == 'vectorirq':
+            fileOffset = 0xfffe - 0x8000 - (currentAddress-startAddress) + bank * bankSize + headerSize
+            return '${:02x}{:02x}'.format(out[fileOffset+1], out[fileOffset])
         elif s in timeSymbols:
             v = list(datetime.now().timetuple())[timeSymbols.index(s)]
         elif s in assembler.nesRegisters:
@@ -901,6 +940,23 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             v = list(range(*v))
             l = len(v)
             return v,l
+        if mode == 'concat':
+            v=v.split(',',1)
+            left, right = getValue(v[0]), getValue(v[1])
+            
+            left = makeList(left)
+            right = makeList(right)
+            
+            if type(left) != type(right):
+                txt = "Can't concat types {} and {}".format(type(left).__name__, type(right).__name__)
+                assembler.errorHint = txt
+                print(txt)
+                return -1,0
+            
+            v = left + right
+            v,l = getValueAndLength(v)
+            return v,l
+            
         if mode == 'evalvar':
             print(v)
             v,l = getValueAndLength(v)
@@ -956,7 +1012,27 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         v = v.strip()
         l = False
         
+        # list indexing like a[1]
+        if '[' in v and v.endswith(']') and v.find(']') == v.rfind(']'):
+            index = v.split('[',1)[1].split(']')[0]
+            s = getSymbolInfo(v.split('[')[0])
+            if s:
+                if type(s.value) == list:
+                    s.value = s.value[:]
+                v,l = getValueAndLength(s.value[getValue(index)], mode=mode)
+                return v,l
+        
         vToken = assembler.tokenize(v)
+#        while True:
+#            l = [i for i, x in enumerate(vToken) if '[' in x and ']' not in x]
+#            if len(l) > 0:
+#                i = l[0]
+#                if i+2>len(vToken):
+#                    break
+#                vToken[i:i+2]=[', '.join(vToken[i:i+2])]
+#            else:
+#                break
+                
         
         #v = v.replace(", ",",").replace(" ,",",")
         if v.startswith("(") and v.endswith(")"):
@@ -1225,11 +1301,15 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             l = -1
         
         if mode == 'astext':
+            #print('astextv',line, v, type(v))
             v = bytearray(makeList(v)).decode('utf8')
             l = len(v)
             return v, l
 
         if mode == 'textmap':
+            if type(v) is int:
+                print('bad textmap type')
+                return v,l
             v = assembler.mapText(bytearray(makeList(v)).decode('utf8'))
             l = len(v)
         
@@ -1327,6 +1407,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             print("Could not find file: {}".format(binFile))
             return
     lastPass = 3
+    
+    rndState = random.getstate()
+    
     for passNum in range(1,lastPass+1):
         passTime = time.time()
         
@@ -1347,6 +1430,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
         lineSep = makeList(cfg.getValue('main', 'linesep'))
         suppressErrorPrefix = makeList(cfg.getValue('main', 'suppressErrorPrefix'))
         caseSensitive = cfg.isTrue(cfg.getValue('main', 'caseSensitive'))
+        
+        # This is important for consistancy in each pass
+        random.setstate(rndState)
         
         assembler.caseSensitive = caseSensitive
         
@@ -1772,6 +1858,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 v = getValue(line.split(" ")[1].strip())
                 out[6] = (out[6] & 0x0f) | (v & 0x0f)<<4
                 out[7] = (out[7] & 0x0f) | (v & 0xf0)
+            elif k == 'index':
+                errorText = '{} directive not implemented.'.format(k)
+            elif k == 'mem':
+                errorText = '{} directive not implemented.'.format(k)
             elif k == 'orgpad':
                 orgPad = getValue(line.split(" ")[1].strip())
             elif k == 'insert':
@@ -2185,8 +2275,17 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 findData = list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
                 #b = b + list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
                 
+                
                 out2 = list(out)
-                result = [i for i in range(len(out2)-len(findData)+1) if out2[i:i+len(findData)]==findData]
+                lenFindData = len(findData)
+                lenData = len(out2)
+                
+                #t = time.time()
+                result = [i for i in range(lenData-lenFindData+1) if out2[i:i+lenFindData]==findData]
+                #print(time.time()-t)
+                
+                res = []
+                
                 if result:
                     for a in result[:20]:
                         #print([hex(x-headerSize) for x in result])
@@ -2194,8 +2293,13 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                         a = (a-headerSize)
                         resultBank = math.floor(a/bankSize)
                         a=a-resultBank*bankSize+0x8000
+                        
+                        a=a+currentAddress-startAddress
+                        #print(hex(startAddress), hex(currentAddress))
+                        
                         print('{:02x}:{:04x}'.format(resultBank,a))
-                
+                else:
+                    print('0 results.')
             elif k == 'macro':
                 v = line.split(" ")[1].strip()
                 macro = v.lower()
@@ -2602,7 +2706,13 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                             ns, k = k.split(namespaceSymbol,1)
                         if ns!='':
                             ns = ns + namespaceSymbol
-                        symbols[ns + assembler.lower(k)] = getValue(v)
+                        
+                        if '[' in k:
+                            index = k.split('[',1)[1].split(']')[0]
+                            k = k.split('[')[0]
+                            symbols[ns + assembler.lower(k)][getValue(index)] = getValue(v)
+                        else:
+                            symbols[ns + assembler.lower(k)] = getValue(v)
                     k=''
             
             if len(b)>0:
