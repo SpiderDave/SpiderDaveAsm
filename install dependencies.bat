@@ -1,6 +1,16 @@
 @echo off
 set numpackages=2
 
+echo Checking for administrative permissions...
+
+net session >nul 2>&1
+if %errorLevel% == 0 (
+    echo Admin permissions confirmed.
+) else (
+    set errormessage=Please run this file as adminstrator
+    goto error
+)
+
 rem make sure the working folder is the one containing this file.
 cd /D "%~dp0"
 
