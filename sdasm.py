@@ -497,7 +497,7 @@ directives = [
     'inesworkram','inessaveram','ines2',
     'orgpad', 'padorg', 'quit','incchr','chr','setpalette','loadpalette',
     'rept','endr','endrept','sprite8x16','export','diff',
-    'assemble', 'exportchr', 'ips','gg','echo','function','endf', 'endfunction',
+    'assemble', 'exportchr', 'ips','makeips', 'gg','echo','function','endf', 'endfunction',
     'return','namespace','break','expected',
 ]
 
@@ -1449,6 +1449,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
             print("Could not find file: {}".format(binFile))
             return
     
+    originalFileData = fileData[:]
     
     rndState = random.getstate()
     
@@ -1959,6 +1960,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 assembler.stripHeader = True
             elif k == 'banksize':
                 bankSize = getValue(line.split(" ")[1].strip())
+                #print('banksize: ',bankSize)
             elif k == 'chrsize':
                 chrSize = getValue(line.split(" ")[1].strip())
             elif k == 'lastbank':
@@ -1974,6 +1976,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 # bank resets
                 currentAddress = 0x8000
                 addr = bank * bankSize
+#                print('bank=',bank)
+#                print('banksize=',bankSize)
+#                print('addr=',hex(addr))
+#                print('currentAddress=',hex(currentAddress))
+#                print('startAddress=',hex(startAddress))
+#                print('fileOffset=',hex(int(getSpecial('fileoffset'))))
             elif k == 'chr':
                 v = getValue(line.split(" ")[1].strip())
                 
@@ -2367,6 +2375,18 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 else:
                     assembler.errorLinePos = len(line.split(' ',1)[0])+1
                     errorText = 'file not found'
+            elif k == 'makeips' and passNum == lastPass:
+                filename = line.split(" ",1)[1].strip()
+                filename = getString(filename)
+                
+                ipsData = ips.createIps(originalFileData, out)
+                try:
+                    with open(filename, 'wb') as file:
+                        file.write(bytes(ipsData))
+                    print("{} written.".format(filename))
+                except:
+                    print("Could not open file.")
+
             elif k == 'include' or k == 'include?' or k=='incsrc' or k == 'require':
                 filename = line.split(" ",1)[1].strip()
                 
@@ -2516,7 +2536,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                 v = getValue(line.split(' ',1)[1])
 
                 if (orgPad == 1) and (startAddress!=False):
-                    k = 'pad'
+                    k = 'org pad'
                 else:
                     addr = addr + (v-currentAddress)
                     currentAddress += (v-currentAddress)
@@ -2529,7 +2549,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                         k = 'pad'
                         line = 'pad ${:04x}'.format(addr)
 
-            if k == 'pad' or k == 'fillto':
+            if k == 'pad' or k == 'fillto' or k == 'org pad':
                 data = line.split(' ',1)[1]
                 
                 fv = fillValue
@@ -2546,7 +2566,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     
                     
                     if currentAddress <= a:
-                        if ',' not in data and padOrg == 1:
+                        if ',' not in data and padOrg == 1 and k!='org pad':
                             # pad with original data (asm6n behaviour)
                             fileOffset = int(getSpecial('fileoffset'))
                             b.extend(out[fileOffset:fileOffset+(a-currentAddress)])
@@ -2938,6 +2958,17 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile):
                     else:
                         #fileOffset = addr % bankSize + bank*bankSize+headerSize
                         fileOffset = addr + bank * bankSize + headerSize
+#                        fileOffset = addr % bankSize + bank*bankSize+headerSize
+#                        fileOffset = currentAddress - startAddress  + bank*bankSize+headerSize
+#                        fileOffset = addr + headerSize
+#                        fileOffset = addr + headerSize
+                        #fileOffset = addr
+                        fileOffset = addr + bank * bankSize + headerSize
+#                        print('*', originalLine)
+#                        print('addr=',hex(addr))
+#                        print('bank=',bank)
+#                        print('bankSize=',hex(bankSize))
+#                        print('fileOffset=',hex(fileOffset))
                         
                         if fileOffset == len(out):
                             # We're in the right spot, just append
