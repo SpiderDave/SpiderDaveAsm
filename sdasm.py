@@ -1095,6 +1095,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 random.shuffle(v)
             return v,len(v)
         
+        if type(v) is bool:
+            return v, 0
+        
         if type(v) is str and '??' in v:
             v = v.split('??',1)
             
@@ -2158,8 +2161,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                         index = False
                         break
                 
-                symbols['resultbank'] = 0
-                symbols['resultaddress'] = 0
+                symbols['resultbank'] = False
+                symbols['resultaddress'] = False
                 if passNum == lastPass:
                     print(f'\nSearching for text: "{txt}"')
                     if index:
