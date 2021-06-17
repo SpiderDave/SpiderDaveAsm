@@ -494,7 +494,7 @@ directives = [
     'org','base','pad','fillto','align','fill','fillvalue','fillbyte','padbyte',
     'include','include?','incsrc','require','includeall','incbin','bin',
     'db','dw','byte','byt','word','hex','dc.b','dc.w',
-    'dsb','dsw','ds.b','ds.w','dl','dh',
+    'dsb','dsw','ds.b','ds.w','dl','dh','res',
     'enum','ende','endenum',
     'print','warning','error',
     'setincludefolder','setcurrentfile',
@@ -510,6 +510,7 @@ directives = [
     'rept','endr','endrept','sprite8x16','export','diff',
     'assemble', 'exportchr', 'ips','makeips', 'gg','echo','function','endf', 'endfunction',
     'return','namespace','break','expected',
+    'findtext', 'lastpass', 
 ]
 
 filters = [
@@ -1535,6 +1536,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
     rndState = random.getstate()
     
     for passNum in range(1,lastPass+1):
+        if passNum>lastPass:
+            break
+        
         passTime = time.time()
         
         commentSep = makeList(cfg.getValue('main', 'comment'))
@@ -1578,6 +1582,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         oldAddr = 0
         
         noOutput = False
+        noOutputSingle = False
         
         macro = False
         function = False
@@ -2131,18 +2136,58 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 orgPad = getValue(line.split(" ")[1].strip())
             elif k == 'padorg':
                 padOrg = getValue(line.split(" ")[1].strip())
+            elif k == 'lastpass':
+                print('Skipping to final pass')
+                lastPass = passNum
+            elif k == 'findtext':
+                txt = line.split(" ", 1)[1]
+                txt = getString(getValue(txt), strip = False) or getString(txt)
+                findValue = assembler.mapText(txt)
+                
+#                if passNum == lastPass:
+                
+                fileOffset = int(getSpecial('fileoffset'))
+                
+                index = fileOffset - 1
+                while True:
+                    try:
+                        index = out.index(findValue[0], index+1)
+                        if out[index:index+len(findValue)] == findValue:
+                            break
+                    except:
+                        index = False
+                        break
+                
+                symbols['resultbank'] = 0
+                symbols['resultaddress'] = 0
+                if passNum == lastPass:
+                    print(f'\nSearching for text: "{txt}"')
+                    if index:
+                        a = (index-headerSize)
+                        resultBank = math.floor(a/bankSize)
+                        a = a % bankSize + 0x8000
+                        print('Found at: {:02x}:{:05x}'.format(resultBank, a))
+                        symbols['resultbank'] = resultBank
+                        symbols['resultaddress'] = a
+                    else:
+                        print('Not found')
+                    print()
+            
             elif k == 'insert':
                 v = getValue(line.split(" ", 1)[1].strip())
                 fv = fillValue
                 if type(v) == list:
                     fv = v[1]
                     v = v[0]
+                
                 fileOffset = addr + bank * bankSize + headerSize
+                fileOffset = int(getSpecial('fileoffset'))
+                print(f'addr={hex(addr)}, bank={hex(bank)}, bankSize={hex(bankSize)}, headerSize={headerSize}, fileOffset={hex(fileOffset)}')
                 #out = out[:fileOffset]+([fv] * v)+out[fileOffset:]
                 
                 out[fileOffset:fileOffset] = [fv] * v
                 
-                if debug:
+                if debug or True:
                     print('insert', v, 'bytes.')
             elif k == 'truncate':
                 fileOffset = addr + bank * bankSize + headerSize
@@ -2676,11 +2721,13 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             elif k == 'hex':
                 data = line.split(' ',1)[1]
                 b = b + list(bytes.fromhex(''.join(['0'*(len(x)%2) + x for x in data.split()])))
-            elif k == 'dsb' or k == 'ds.b':
+            elif k == 'dsb' or k == 'ds.b' or k == 'res':
                 data = line.split(' ',1)[1]
                 n = getValue(data.split(",")[0])
                 v = getValue((data.split(",")+['0'])[1])
                 b = b + [v] * n
+                if k == 'res':
+                    noOutputSingle = True
                 
             elif k == 'dsw' or k == 'ds.w':
                 data = line.split(' ',1)[1]
@@ -3008,8 +3055,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     errorText= 'invalid bytes: '+str(b)
             
                 showAddress = True
-                #noOutput=True
-                if noOutput==False and passNum == lastPass:
+                if noOutput==False and noOutputSingle==False and passNum == lastPass:
                     
                     if bank == None:
                         fileOffset = addr
@@ -3045,12 +3091,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                         
                         
 #                        print('*', originalLine)
-                        if bank == 1 and not quiet:
-                            print('currentAddress=',hex(currentAddress))
-                            print('addr=',hex(addr))
-                            print('bank=',bank)
-                            print('bankSize=',hex(bankSize))
-                            print('fileOffset=',hex(fileOffset))
+#                        if bank == 1 and not quiet:
+#                            print('currentAddress=',hex(currentAddress))
+#                            print('addr=',hex(addr))
+#                            print('bank=',bank)
+#                            print('bankSize=',hex(bankSize))
+#                            print('fileOffset=',hex(fileOffset))
                         
                         if fileOffset == len(out):
                             # We're in the right spot, just append
@@ -3070,7 +3116,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                         elif fileOffset<len(out):
                             #out = out[:fileOffset]+b+out[fileOffset+len(b):]
                             out[fileOffset:fileOffset+len(b)] = b
-                if noOutput==False:
+                if noOutput==False and noOutputSingle==False:
                     addr = addr + len(b)
                 currentAddress = currentAddress + len(b)
             
@@ -3081,13 +3127,13 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 
                 fileOffset = getValue('fileoffset')
                 
-                if noOutput==False:
+                if noOutput==False and noOutputSingle==False:
                     fileOffset -= len(b)
                 
                 if showFileOffsetInListFile:
                     outputText+="{:05X} ".format(fileOffset)
 
-                if startAddress or noOutput == True:
+                if startAddress or ((noOutput == True) or (noOutputSingle==True)):
                     outputText+="{:05X} ".format(currentAddress-len(b))
                 else:
                     outputText+=' '*6
@@ -3096,7 +3142,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     outputText+="{}\n".format(originalLine)
                 else:
                     listBytes = False
-                    if noOutput:
+                    if noOutput or noOutputSingle:
                         listBytes = ' '*(3*nBytes+1)
                     else:
                         listBytes = ' '.join(['{:02X}'.format(x) for x in b[:nBytes]]).ljust(3*nBytes-1) + ('..' if len(b)>nBytes else '  ')
@@ -3125,6 +3171,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     errorText = False
                     assembler.errorLinePos = False
             if k==".org": showAddress = True
+            noOutputSingle = False
             if passNum == lastPass and (time.time() - lineTime>2):
                 print(originalLine)
                 print('Line time: ' + elapsed(lineTime))
