@@ -1525,6 +1525,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
     originalLines = lines
     
     symbols = Map()
+    symbols.sdasm = 1
     equ = Map()
     
     lastPass = 3
@@ -2672,7 +2673,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     
                     v = item[1]
                     
-                    if v.startswith('#'):
+                    immediate = False
+                    sInfo = getSymbolInfo(nsSymbol(v))
+                    if sInfo and str(sInfo.get('value','')).startswith('#'):
+                        immediate = True
+                    
+                    if v.startswith('#') or immediate:
                         v = '#'+str(getValue(v))
                     else:
                         v = getValue(v)
