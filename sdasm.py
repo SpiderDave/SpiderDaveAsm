@@ -31,6 +31,7 @@ except:
 Cfg = include.Cfg
 ips = include.ips
 GG = include.GG
+ld65cfg = include.ld65cfg
 import time
 from datetime import date, datetime
 
@@ -300,6 +301,7 @@ class Assembler():
     fileLineNumber = 0
     error = False               # used to determine if exit code 3 is needed
     errorText = ''
+    memcfg = False
     
     nesRegisters = Map(
         PPUCTRL = 0x2000, PPUMASK = 0x2001, PPUSTATUS = 0x2002,
@@ -323,6 +325,8 @@ class Assembler():
     def dummy(self):
         pass
     def printError(self, errorText = '', line = ''):
+        if not errorText:
+            errorText = self.errorText
         print(line)
         if self.errorLinePos:
             print(' '*self.errorLinePos+'^')
@@ -517,10 +521,11 @@ directives = [
     'assemble', 'exportchr', 'ips','makeips', 'gg','echo','function','endf', 'endfunction',
     'return','namespace','break','expected',
     'findtext', 'lastpass', 'endoffunction', '_wipe',
+    'loadld65cfg', 'segment',
 ]
 
 filters = [
-    'shuffle','getbyte','getword','choose',
+    'shuffle','getbyte','getbytes','getword','choose',
     'format','random','range','textmap',
     'evalvar','pop','astext','len',
     'fileexist', 'nfileexist','py',
@@ -859,15 +864,32 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             l = len(n)
         
         return l
+    def getAsFilename(filename):
+        print(filename)
+        filename = getValueAsString(filename.strip(), fallback=True)
+        print(filename)
+        if assembler.errorHint:
+            errorText = assembler.errorHint
+            assembler.errorLinePos = len(originalLine.rstrip())-1
+        
+        filename = assembler.findFile(filename)
+        if not filename:
+            errorText = 'file not found'
+        return filename
     def getValueAsString(s, fallback=False):
+        ret = False
         try:
-            return getString(getValue(s))
+            ret = getString(getValue(s))
         except:
+            pass
+            
+        if ret:
+            return ret
+        else:
             if fallback:
                 assembler.errorHint = False
                 return  getString(s)
             return False
-    
     def getString(s, strip=True):
         if type(s) is int:
             return False
@@ -1057,6 +1079,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             random.shuffle(v)
             v=v[0]
             l=1
+            
+            #v,l = getValueAndLength(v)
+            
             return v,l
         if mode == 'pop':
             s = getSymbolInfo(v)
@@ -1118,7 +1143,15 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 r2 = getValue(v[1])
             else:
                 r2 = None
-            v = random.randrange(r1,r2)
+            
+            try:
+                v = random.randrange(r1,r2)
+            except:
+                # symbol evaluation fails on earlier passes sometimes
+                v = 0
+                if passNum == lastPass:
+                    assembler.errorHint = "invalid random range"
+                    return 0,0
             l = 1
             return v,l
         
@@ -1499,21 +1532,26 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             v = assembler.mapText(bytearray(makeList(v)).decode('utf8'))
             l = len(v)
         
+        if mode == 'getbytes':
+            fileOffset = (addr + (v-currentAddress)) + headerSize
+            try:
+                v = out[fileOffset:fileOffset + param]
+                return v, param
+            except:
+                return 0, 0
         if mode == 'getbyte':
-            # this looks like the right result but i don't know why
-            # i have to subtract the 0x4000
-            if bank != None:
-                fileOffset = v - 0x8000 + (bank * bankSize) + headerSize - 0x4000
-            else:
-                fileOffset = v - 0x8000 + headerSize - 0x4000
-            v = int(out[fileOffset])
+            fileOffset = (addr + (v-currentAddress)) + headerSize
+            try:
+                v = int(out[fileOffset])
+            except:
+                v = 0
             l = 1
         if mode == 'getword':
-            if bank != None:
-                fileOffset = v - 0x8000 + (bank * bankSize) + headerSize - 0x4000
-            else:
-                fileOffset = v - 0x8000 + headerSize - 0x4000
-            v = int(out[fileOffset]) + int(out[fileOffset+1]) * 0x100
+            fileOffset = (addr + (v-currentAddress)) + headerSize
+            try:
+                v = int(out[fileOffset]) + int(out[fileOffset+1]) * 0x100
+            except:
+                v = 0
             l = 2
         
         return v, l
@@ -1817,20 +1855,30 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                                 fmtStart = line.find(':',start)+1
                                 fmtEnd = line.find(':',fmtStart)
                                 fmtString = '{:' + line[fmtStart:fmtEnd] + '}'
-                                l = getValue(line[fmtEnd+1:end])
+                                #v = getValue(line[fmtEnd+1:end])
+                                v, l = getValueAndLength(line[fmtEnd+1:end])
                                 
-                                if type(l) is list:
+                                if type(v) is list:
                                     print("can't format a list")
                                 
-                                l = fmtString.format(l)
+                                v = fmtString.format(v)
+                            elif item == 'getbytes':
+                                v = assembler.tokenize(line[start+2+len(item):end])
+                                v, l = getValueAndLength(v[0], mode=item, param = getValue(v[1]))
                             else:
-                                l = getValue(line[start+2+len(item):end], mode=item)
+                                #v = getValue(line[start+2+len(item):end], mode=item)
+                                v, l = getValueAndLength(line[start+2+len(item):end], mode=item)
+                                assembler.errorLinePos = start+2+len(item)
                             
-                            if type(l) is int:
-                                l = str(l)
-                            elif type(l) is list:
-                                l = ','.join([str(x) for x in l])
-                            line = line.replace(line[start:end+1], l)
+                            if l == 0:
+                                errorText = assembler.errorHint or 'invalid filter value'
+                                
+                                v = "0"
+                            elif type(v) is int:
+                                v = str(v)
+                            elif type(v) is list:
+                                v = ','.join([str(x) for x in v])
+                            line = line.replace(line[start:end+1], v)
                     
                     while o in line:
                         start = line.find(o)
@@ -2146,6 +2194,42 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
 #                print('currentAddress=',hex(currentAddress))
 #                print('startAddress=',hex(startAddress))
 #                print('fileOffset=',hex(int(getSpecial('fileoffset'))))
+                
+            elif k == 'segment':
+                if assembler.memcfg:
+                    segId = line.split(" ")[1].strip()
+                    segId = getValueAsString(segId, fallback=True)
+                    
+                    mem = assembler.memcfg['memory']
+                    seg = assembler.memcfg['segments']
+                    
+                    load = seg[segId].get('load')
+                    
+                    a = 0
+                    for k,v in mem.items():
+                        if k == load:
+                            break
+                        a = a + v.get('size')
+                    
+                    addr = a
+                    
+                    currentAddress = seg[segId].get('start', mem.get(load).get('start'))
+                    startAddress = mem.get(load).get('start')
+                    
+                    # segment has a defined start, like $fffa for vectors
+                    if seg[segId].get('start', False):
+                        startAddress = seg[segId].get('start') - mem.get(load).get('start')
+                        addr += seg[segId].get('start', 0) - mem.get(load).get('start')
+                    
+                    if debug:
+                        print('segment:')
+                        print('load =', load)
+                        print('addr =', hex(addr))
+                        print('startAddress =', hex(currentAddress))
+                        print('currentAddress =', hex(currentAddress))
+                        print()
+                else:
+                    print('ld65cfg not loaded, ignoring segment.')
             elif k == 'chr':
                 v = getValue(line.split(" ")[1].strip())
                 
@@ -2324,7 +2408,19 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 data = (line.split(" ",1)+[''])[1].strip()
                 filename = getValueAsString(data) or getString(data)
                 assembler.currentFilename = filename
-            
+            elif k=='loadld65cfg':
+                data = (line.split(" ",1)+[''])[1].strip()
+                filename = getAsFilename(data) or 'ld65.cfg'
+                
+                if filename:
+                    d = ld65cfg.read()
+                    if d:
+                        assembler.memcfg = d
+                    else:
+                        errorText = 'could not read file {}'.format(filename)
+                else:
+                    assembler.errorLinePos = len(line.split(' ',1)[0])+1
+                    errorText = 'file not found'
             elif k=='loadtable' or k == 'table':
                 l = line.split(" ",1)[1].strip()
                 l = l.split(',',1)
@@ -2599,7 +2695,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 
                 if assembler.errorHint:
                     errorText = assembler.errorHint
-                    assembler.errorLinePos = len(line)
+                    assembler.errorLinePos = len(originalLine.rstrip())-1
 
                 filename = assembler.findFile(filename)
                 if filename:
@@ -2626,7 +2722,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 
                 if assembler.errorHint:
                     errorText = assembler.errorHint
-                    assembler.errorLinePos = len(line)
+                    assembler.errorLinePos = len(originalLine.rstrip())-1
                 
                 if passNum == lastPass and not quiet and filename is str:
                     print(filename.replace("\\","/"))
@@ -3153,6 +3249,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 
                 if '(' in value and value.split('(',1)[0] in functions:
                     t = assembler.tokenize(keyword)
+#                    fName = value.split('(',1)[0]
+#                    nParams = len(functions[fName].params)
                     
                     newLines = []
                     newLines.append(value.lstrip())
@@ -3319,7 +3417,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     outputText+='*** {}\n'.format(errorText)
                     outputText+='    {}\n'.format(assembler.currentFilename)
                     
-                    print(line)
+                    #print(line)
+                    print(originalLine)
                     if assembler.errorLinePos:
                         print(' '*assembler.errorLinePos+'^')
                     print('*** {}'.format(errorText))
