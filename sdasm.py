@@ -63,7 +63,7 @@ frozen = (getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'))
 initialFolder = os.getcwd()
 
 if np:
-    usenp =True
+    usenp = True
 # need better code for slicing with numpy.
 # just disable for now.
 usenp = False
@@ -76,7 +76,7 @@ version = dict(
 )
 version.update(version = 'v{} {}'.format(version.get('buildDate'), version.get('stage')))
 
-defaultPalette=[
+defaultPalette = [
     [116, 116, 116], [36, 24, 140], [0, 0, 168], [68, 0, 156],[140, 0, 116],
     [168, 0, 16],[164, 0, 0],[124, 8, 0],[64, 44, 0],[0, 68, 0],[0, 80, 0],
     [0, 60, 20],[24, 60, 92],[0, 0, 0],[0, 0, 0],[0, 0, 0],[188, 188, 188],
@@ -517,11 +517,11 @@ directives = [
     'inesprg','ineschr','inesmir','inesmap','inesbattery','inesfourscreen',
     'inesworkram','inessaveram','ines2',
     'orgpad', 'padorg', 'quit','incchr','chr','setpalette','loadpalette',
-    'rept','endr','endrept','sprite8x16','export','diff',
+    'rept','endr','endrept','sprite8x16','export','diff','diff2',
     'assemble', 'exportchr', 'ips','makeips', 'gg','echo','function','endf', 'endfunction',
     'return','namespace','break','expected',
     'findtext', 'lastpass', 'endoffunction', '_wipe',
-    'loadld65cfg', 'segment',
+    'loadld65cfg', 'loadld65cfg?', 'segment',
 ]
 
 filters = [
@@ -779,6 +779,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = False, conf
     cfg.setDefault('main', 'xkasplusbranch', False)
     cfg.setDefault('main', 'showFileOffsetInListFile', True)
     cfg.setDefault('main', 'fullTraceback', False)
+    cfg.setDefault('main', 'loadld65cfg', True)
     
     assembler.quotes = tuple(makeList(cfg.getValue('main', 'quotes')))
 
@@ -1673,6 +1674,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         metaCommandPrefix = makeList(cfg.getValue('main', 'metaCommandPrefix'))
         showFileOffsetInListFile = cfg.isTrue(cfg.getValue('main', 'showFileOffsetInListFile'))
         fullTraceback = cfg.isTrue(cfg.getValue('main', 'fullTraceback'))
+        loadld65cfg = cfg.isTrue(cfg.getValue('main', 'loadld65cfg'))
         
         assembler.namespace = Stack([''])
         
@@ -1686,6 +1688,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         
         assembler.currentFilename = assembler.initialFilename
         lines = originalLines
+        
+        if loadld65cfg:
+            lines = [assembler.hidePrefix + 'loadld65cfg?'] + lines
         
         addr = 0
         oldAddr = 0
@@ -1878,7 +1883,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                                 v = str(v)
                             elif type(v) is list:
                                 v = ','.join([str(x) for x in v])
-                            line = line.replace(line[start:end+1], v)
+                            line = line.replace(line[start:end+1], str(v))
                     
                     while o in line:
                         start = line.find(o)
@@ -2338,7 +2343,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     fv = v[1]
                     v = v[0]
                 
-                fileOffset = addr + bank * bankSize + headerSize
+                #fileOffset = addr + bank * bankSize + headerSize
                 fileOffset = int(getSpecial('fileoffset'))
                 #print(f'addr={hex(addr)}, bank={hex(bank)}, bankSize={hex(bankSize)}, headerSize={headerSize}, fileOffset={hex(fileOffset)}')
                 #out = out[:fileOffset]+([fv] * v)+out[fileOffset:]
@@ -2408,7 +2413,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 data = (line.split(" ",1)+[''])[1].strip()
                 filename = getValueAsString(data) or getString(data)
                 assembler.currentFilename = filename
-            elif k=='loadld65cfg':
+            elif k == 'loadld65cfg' or k == 'loadld65cfg?':
                 data = (line.split(" ",1)+[''])[1].strip()
                 filename = getAsFilename(data) or 'ld65.cfg'
                 
@@ -2421,6 +2426,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 else:
                     assembler.errorLinePos = len(line.split(' ',1)[0])+1
                     errorText = 'file not found'
+                
+                if k.endswith('?'):
+                    errorText = False
             elif k=='loadtable' or k == 'table':
                 l = line.split(" ",1)[1].strip()
                 l = l.split(',',1)
@@ -2508,7 +2516,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                             print('{} written.'.format(filename))
                     except:
                         print('export error')
-            elif k == 'diff':
+            elif k == 'diff' or k == 'diff2':
                 if passNum == lastPass:
                     arg = line.split(' ',1)[1].strip()
                     arg = assembler.tokenize(arg)
@@ -2522,15 +2530,26 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                         diffOut='; {}\n'.format(filename)
                         n=0
                         for i,b1 in enumerate(out):
+#                            if i > len(diffData):
+#                                break
                             b2 = diffData[i]
                             if b1!=b2:
-                                if n==0:
-                                    diffOut += 'org ${:04x} ; ${:04x}\n    db ${:02x}'.format(i-0x10+0x8000, i, b1)
-                                else:
-                                    if n % 4 == 0:
-                                        diffOut += '\n    db ${:02x}'.format(b1)
+                                if k == 'diff':
+                                    if n==0:
+                                        diffOut += 'org ${:04x} ; ${:04x}\n    db ${:02x}'.format(i-0x10+0x8000, i, b1)
                                     else:
-                                        diffOut += ', ${:02x}'.format(b1)
+                                        if n % 4 == 0:
+                                            diffOut += '\n    db ${:02x}'.format(b1)
+                                        else:
+                                            diffOut += ', ${:02x}'.format(b1)
+                                elif k == 'diff2':
+                                    if n==0:
+                                        diffOut += 'org ${:04x} ; ${:04x}\n    db ${:02x}'.format(i-0x10+0x8000, i, b2)
+                                    else:
+                                        if n % 4 == 0:
+                                            diffOut += '\n    db ${:02x}'.format(b2)
+                                        else:
+                                            diffOut += ', ${:02x}'.format(b2)
                                 n += 1
                             else:
                                 if n>0:
