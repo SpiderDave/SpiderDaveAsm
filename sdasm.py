@@ -1143,7 +1143,11 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             if len(v) == 2:
                 r2 = getValue(v[1])
             else:
+                # Add 1 so for example:
+                #   random:0 is randrange(1) or randrange(0, 1)
+                #   random:1 is randrange(2) or randrange(0, 2)
                 r2 = None
+                r1 = r1 + 1
             
             try:
                 v = random.randrange(r1,r2)
