@@ -19,6 +19,7 @@ ToDo/Issues:
         ex: bcc $79
     * allow some awkward lack of spaces: "bne+"
     * handle expressions in macro arguments
+    * make it so insert shows added bytes in list file
 """
 
 from array import array
@@ -176,12 +177,21 @@ def exportCHRDataToImage(filename="export.png", fileData=False, colors=(0x0f,0x2
     
     if type(fileData) is str:
         fileData = [ord(x) for x in fileData]
-        
-    img=Image.new("RGB", size=(128,128))
+    
+    nTiles = int(len(fileData) / 16)
+    
+    # Load or create image
+    try:
+        with Image.open(filename) as img:
+            img.load()
+    except:
+        img=Image.new("RGB", size=(128,128))
+    
+    img.load()
     
     a = np.asarray(img).copy()
     
-    for tile in range(256):
+    for tile in range(nTiles):
         for y in range(8):
             for x in range(8):
                 c=0
@@ -205,6 +215,7 @@ def makeList(item):
 def flattenList(k):
     result = list()
     for i in k:
+        #if '__iter__' in dir(i): # Should be better, but want to test
         if isinstance(i,list):
             result.extend(flattenList(i))
         else:
@@ -302,6 +313,8 @@ class Assembler():
     error = False               # used to determine if exit code 3 is needed
     errorText = ''
     memcfg = False
+    insert = False
+    gg = False
     
     nesRegisters = Map(
         PPUCTRL = 0x2000, PPUMASK = 0x2001, PPUSTATUS = 0x2002,
@@ -778,6 +791,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = False, conf
     cfg.setDefault('main', 'floorDiv', True)
     cfg.setDefault('main', 'xkasplusbranch', False)
     cfg.setDefault('main', 'showFileOffsetInListFile', True)
+    cfg.setDefault('main', 'showBankInListFile', False)
     cfg.setDefault('main', 'fullTraceback', False)
     cfg.setDefault('main', 'loadld65cfg', True)
     
@@ -1057,14 +1071,23 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         
         if mode == 'getbyte':
             a = getValue(v)
-
-            if bank != None:
-                a = (a-0x8000-0x4000) + bank * bankSize + headerSize
-            else:
-                #a = a + headerSize
-                pass
+            fileOffset = int(getSpecial('fileoffset')) + (a-currentAddress)
+            try:
+                v = int(out[fileOffset])
+            except:
+                v = 0
+            return v, 1
+        
+        if mode == 'getword':
+            a = getValue(v)
+            fileOffset = int(getSpecial('fileoffset')) + (a-currentAddress)
             
-            return out[a],1
+            try:
+                v = int(out[fileOffset]) + int(out[fileOffset+1]) * 0x100
+            except:
+                v = 0
+            return v, 2
+        
         if mode == 'len':
             v, l = getValueAndLength(v)
             return l, 1
@@ -1538,26 +1561,29 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             l = len(v)
         
         if mode == 'getbytes':
-            fileOffset = (addr + (v-currentAddress)) + headerSize
+            #fileOffset = (addr + (v-currentAddress)) + headerSize
+            fileOffset = int(getSpecial('fileoffset')) + (v-currentAddress)
+            
             try:
                 v = out[fileOffset:fileOffset + param]
                 return v, param
             except:
                 return 0, 0
-        if mode == 'getbyte':
-            fileOffset = (addr + (v-currentAddress)) + headerSize
-            try:
-                v = int(out[fileOffset])
-            except:
-                v = 0
-            l = 1
-        if mode == 'getword':
-            fileOffset = (addr + (v-currentAddress)) + headerSize
-            try:
-                v = int(out[fileOffset]) + int(out[fileOffset+1]) * 0x100
-            except:
-                v = 0
-            l = 2
+#        if mode == 'getbyte':
+#            fileOffset = (addr + (v-currentAddress)) + headerSize
+#            try:
+#                v = int(out[fileOffset])
+#            except:
+#                v = 0
+#            l = 1
+#        if mode == 'getword':
+#            fileOffset = int(getSpecial('fileoffset')) + (v-currentAddress)
+            
+#            try:
+#                v = int(out[fileOffset]) + int(out[fileOffset+1]) * 0x100
+#            except:
+#                v = 0
+#            l = 2
         
         return v, l
 
@@ -1677,6 +1703,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         xkasplusbranch = cfg.isTrue(cfg.getValue('main', 'xkasplusbranch'))
         metaCommandPrefix = makeList(cfg.getValue('main', 'metaCommandPrefix'))
         showFileOffsetInListFile = cfg.isTrue(cfg.getValue('main', 'showFileOffsetInListFile'))
+        showBankInListFile = cfg.isTrue(cfg.getValue('main', 'showBankInListFile'))
         fullTraceback = cfg.isTrue(cfg.getValue('main', 'fullTraceback'))
         loadld65cfg = cfg.isTrue(cfg.getValue('main', 'loadld65cfg'))
         
@@ -2354,6 +2381,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 
                 out[fileOffset:fileOffset] = [fv] * v
                 
+                # This is used for display in list file
+                assembler.insert = (v, fv)
+                
                 if debug or True:
                     print('insert', v, 'bytes.')
             elif k == 'truncate':
@@ -2506,6 +2536,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                         print('{} written.'.format(filename))
                     except:
                         print('exportchr error')
+                        raise
             elif k == 'export':
                 if passNum == lastPass:
                     l = line.split(" ",1)[1].strip()
@@ -2700,17 +2731,30 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     errorText = 'file not found'
             elif k == 'gg':
                 arg = line.split(' ',1)[1].strip()
-                gg = GG.getGG(line.split(' ',1)[1].strip())
+                ggCode = getValueAsString(arg.strip(), fallback=True)
+                gg = GG.getGG(ggCode)
+                
+                ggAddresses = []
+                ggOldValues = []
                 
                 offset = gg.get('address') + headerSize
                 while True:
                     if offset>len(out):
+                        #print('offset =', hex(offset), 'len =', hex(len(out)))
                         break
                     if gg.get('compare') is None:
+                        ggOldValues.append(out[offset])
                         out[offset] = gg.get('value')
+                        ggAddresses.append(offset)
+                        #print('{:04x}:{:02x} (0x{:04x})'.format(gg.get('address'), gg.get('value'), offset))
                     elif gg.get('compare') == out[offset]:
+                        ggOldValues.append(out[offset])
                         out[offset] = gg.get('value')
+                        ggAddresses.append(offset)
+                        #print('{:04x}:{:02x}:{:02x} (0x{:04x})'.format(gg.get('address'), gg.get('value'), gg.get('compare'), offset))
                     offset += 0x2000
+                
+                assembler.gg = dict(addresses = ggAddresses[:], value = gg.get('value'), oldValues = ggOldValues[:], address = gg.get('address'), compare=gg.get('compare', None), ggCode = ggCode.upper())
                 
             elif k == 'ips' and passNum == lastPass:
                 filename = line.split(" ",1)[1].strip()
@@ -3266,6 +3310,13 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 v = line[line.lower().find(' equ ')+len(' equ '):]
                 equ[k] = v
             
+            # Append to array
+            if (line.split(',=')+[''])[1] and k!='':
+                keyword = line.split(",=",1)[0].strip()
+                value = line.split(",=",1)[1].strip()
+                symbols[assembler.lower(k)] = getValue('{}, {}'.format(keyword,value), mode='concat')
+                k=''
+                
             if (line.split('=')+[''])[1] and k!='':
                 keyword = line.split("=",1)[0].strip()
                 value = line.split("=",1)[1].strip()
@@ -3410,6 +3461,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 if showFileOffsetInListFile:
                     outputText+="{:05X} ".format(fileOffset)
 
+                if showBankInListFile:
+                    if bank == None:
+                        outputText+="   "
+                    else:
+                        outputText+="{:02X}:".format(bank)
+
                 if startAddress or ((noOutput == True) or (noOutputSingle==True)):
                     outputText+="{:05X} ".format(currentAddress-len(b))
                 else:
@@ -3423,12 +3480,35 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                         listBytes = ' '*(3*nBytes+1)
                     else:
                         listBytes = ' '.join(['{:02X}'.format(x) for x in b[:nBytes]]).ljust(3*nBytes-1) + ('..' if len(b)>nBytes else '  ')
+                        
+                        # Special coding so insert directive looks ok
+                        if k == 'insert':
+                            v, fv = assembler.insert
+                            insertBytes = [fv] * min(v, nBytes)
+                            listBytes = ' '.join(['{:02X}'.format(x) for x in insertBytes]).ljust(3*nBytes-1) + ('..' if v>nBytes else '  ')
                     
                     if (not assembler.expectedWait) and assembler.expected and (listBytes.strip() != assembler.expected):
                         errorText = 'Data and expected not matching\n'.format(listBytes.strip())
                         errorText += '  Data:     {}\n'.format(listBytes.strip())
                         errorText += '  Expected: {}\n'.format(assembler.expected)
                     outputText+="{} {}\n".format(listBytes, originalLine)
+
+
+                    if k == 'gg':
+                        v = assembler.gg.get('value')
+                        for a, ov in zip(assembler.gg.get('addresses'), assembler.gg.get('oldValues')):
+                            outputText+='{:05X} '.format(a)
+
+                            if startAddress or ((noOutput == True) or (noOutputSingle==True)):
+                                outputText+="{:05X} ".format(currentAddress-len(b))
+                            else:
+                                outputText+=' '*6
+                            outputText+='{:02X} {} '.format(v, ' '*(3*(nBytes-1)+1))
+                            outputText+='gg info: {} ({:04X}:{:02X}'.format(assembler.gg.get('ggCode'), assembler.gg.get('address'), assembler.gg.get('value'))
+                            if assembler.gg.get('compare'):
+                                outputText+=':{:02x}'.format(assembler.gg.get('compare'))
+                            outputText+=') ${:02x} --> ${:02}'.format(ov, v)
+                            outputText+='\n'
                 if assembler.suppressError:
                     assembler.suppressError = False
                     errorText = False
