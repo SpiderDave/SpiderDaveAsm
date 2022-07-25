@@ -7,7 +7,6 @@ ToDo/Issues:
     * text mapping
         - named textmaps, alternate formats
     * option to automatically localize labels in macros
-    * get standalone command line switches working
     * namespaces
         - namespace directive
         - use namespaces when defining/specifying labels or symbols
@@ -18,13 +17,21 @@ ToDo/Issues:
     * handle relative unlabeled jumps
         ex: bcc $79
     * allow some awkward lack of spaces: "bne+"
+        * DONE *, should add tests
     * handle expressions in macro arguments
     * make it so insert shows added bytes in list file
+    * fix issue with using org in chr space as the first thing
 """
 
 from array import array
 
 import math, os, sys
+
+# hacky fix for import getting confused
+# with NESBuilder's include module
+if 'include' in sys.modules:
+    sys.path.append('/SpiderDaveAsm')
+
 try:
     from . import include
 except:
@@ -125,10 +132,11 @@ def bestColorMatch(rgb, colors):
         color_diffs.append((color_diff, color))
     return colors.index(min(color_diffs)[1])
 
-def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False, nTiles=False):
+def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False, nTiles=False, shatter = False):
     try:
         with Image.open(f) as im:
-            px = im.load()
+            px = im.convert('RGB').load()
+            #px = im.load()
     except:
         print("error loading image")
         return
@@ -144,6 +152,18 @@ def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False,
     if nTiles==False:
         nTiles = int(w/8 * h/8)
     
+    if shatter:
+        altPalettes = dict(
+            gray = [0x0f, 0x2d, 0x10, 0x30],
+            steve = [0x0f, 0x0b, 0x2a, 0x37],
+            steveAlt = [0x0f, 0x0b, [118,192,0], 0x37],
+            hud = [0x0f, 0x15, 0x26, 0x37],
+            brown = [0x0f, 0x17, 0x27, 0x37],
+            yychr = [0x0f, [0x8c, 0x63, 0x21], [0xad, 0xb5, 0x31], [0xc6, 0xe7, 0x9c]],
+        )
+        for k, pal in altPalettes.items():
+            altPalettes.update({k:[assembler.palette[x] if isinstance(x, int) else x for x in pal]})
+        
     out = []
     for t in range(nTiles):
         tile = [[]]*16
@@ -151,15 +171,21 @@ def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False,
             tile[y] = 0
             tile[y+8] = 0
             for x in range(8):
-                
-                #c = list(px[xOffset+x+(t*8) % w,yOffset+ y + math.floor(t/(w/8))*8])
-                #print(xOffset,x,yOffset,y)
                 try:
-                    #c = list(px[xOffset + x, yOffset + y + math.floor(t/(w/8))*8])
                     c = list(px[xOffset + x, yOffset + y])
                 except:
                     c = [0,0,0]
-                i = bestColorMatch(c, colors)
+                
+                i = False
+                
+                if shatter:
+                    for k, pal in altPalettes.items():
+                        if c[:3] in pal:
+                            i = pal.index(c[:3])
+                            break
+                
+                if i == False:
+                    i = bestColorMatch(c, colors)
                 
                 tile[y] += (2**(7-x)) * (i%2)
                 tile[y+8] += (2**(7-x)) * (math.floor(i/2))
@@ -174,11 +200,6 @@ def imageToCHRData(f, colors=False, xOffset=0,yOffset=0, rows=False, cols=False,
     return ret
 
 def importTilemap(tilemap, filename="import.png", offsetX=0, offsetY=0, fileOffset = 0, fileData = False, palette = 'current'):
-#    if tilemap.palette:
-#        colors = [assembler.palette[x] for x in tilemap.palette]
-#    else:
-#        colors = [assembler.palette[x] for x in assembler.currentPalette]
-    
     maxX, maxY = 0, 0
     for tile in tilemap.data:
         maxX = max(maxX, offsetX + tile.x * tilemap.gridsize + 8)
@@ -187,7 +208,7 @@ def importTilemap(tilemap, filename="import.png", offsetX=0, offsetY=0, fileOffs
     # Load image
     try:
         with Image.open(filename) as img:
-            px = img.load()
+            px = img.convert('RGB').load()
     except:
         print("error loading image")
         return
@@ -202,7 +223,6 @@ def importTilemap(tilemap, filename="import.png", offsetX=0, offsetY=0, fileOffs
             tileOut[y] = 0
             tileOut[y+8] = 0
             for x in range(8):
-
                 if 'h' in tile.flip:
                     x1 = offsetX + tile.x * tilemap.gridsize + (7-x)
                 else:
@@ -417,8 +437,13 @@ class Assembler():
     insert = False
     gg = False
     outputFilename = False
+    printFilename = False
     listFilename = False
     bankData = {}
+    commentBlock = 0
+    shatter = False
+    pcStack = False
+    baseStack = False
     
     nesRegisters = Map(
         PPUCTRL = 0x2000, PPUMASK = 0x2001, PPUSTATUS = 0x2002,
@@ -465,6 +490,74 @@ class Assembler():
         for q in self.quotes:
             if text.startswith(q) and text.endswith(q):
                 return text[len(q):-len(q)]
+        return text
+    def stripComments(self, text=''):
+        # inside a comment block, so just check for block close indicators
+        if self.commentBlock:
+            pos = -1
+            for c in self.commentBlockClose:
+                if c in text:
+                    if pos == -1:
+                        pos = text.find(c) + len(c)
+                    else:
+                        pos = min(pos, text.find(c) + len(c))
+            if pos == -1:
+                # inside a block comment so return empty string
+                return ""
+            else:
+                self.commentBlock -= 1
+                return self.stripComments(text[pos:].strip())
+        
+        commentSep = self.commentSep + self.commentBlockOpen
+        
+        # check for any quotes or comments to handle
+        # if none found, we're done; return text
+        if not any(q in text for q in self.quotes):
+            if not any(sep in text for sep in commentSep):
+                return text
+        
+        qIndex = -1
+        q = ''
+        for quote in self.quotes:
+            i = text.find(quote)
+            if i != -1:
+                # conditions are:
+                # 1. first quote found
+                # 2. quote found at lesser position in string
+                # 3. quote found at same position in string (handles " vs """ etc)
+                if (qIndex == -1) or (i < qIndex) or ((i == qIndex) and len(quote) > len(q)):
+                    qIndex = i
+                    q = quote
+        
+        # check if comment comes before first string
+        cIndex = len(text)
+        cType = False
+        for sep in commentSep:
+            i = text.find(sep)
+            if i !=-1:
+                if (qIndex == -1) and (i < cIndex):
+                    # no quotes found, just mark comment start
+                    cType = sep
+                    cIndex = i
+                elif (i < qIndex) and (i < cIndex):
+                    # comments found before quotes, mark start
+                    cType = sep
+                    cIndex = i
+        
+        # no need for more tokenization; trim and exit
+        if cIndex < len(text):
+            text = text[:cIndex]
+            if cType in self.commentBlockOpen:
+                self.commentBlock += 1
+                print('comment block open')
+            return text
+        
+        # find end of string
+        i = text.find(q, qIndex + len(q))
+        if i != -1:
+            i = i + len(q)
+            text = text[:i] + self.stripComments(text[i:])
+            
         return text
     def tokenize(self, text='', tokens=[], splitter=','):
         tokens = tokens or [text]
@@ -626,14 +719,14 @@ directives = [
     'db','dw','byte','byt','word','hex','dc.b','dc.w',
     'dsb','dsw','ds.b','ds.w','dl','dh','res',
     'enum','ende','endenum',
-    'print','warning','error',
+    'print','warning','error','printtofile',
     'setincludefolder','setcurrentfile',
     'macro','endm','endmacro',
     'if','ifdef','ifndef','else','elseif','endif','iffileexist','iffile',
     'arch','table','loadtable','cleartable','mapdb','clampdb',
     'index','mem','bank','lastbank','banksize','chrsize','header','noheader','stripheader',
-    'define', '_find',
-    'seed','outputfile','listfile','textmap','text','insert','delete','truncate',
+    'define', '_find','absorg',
+    'seed','outputfile','listfile','textmap','text','insert','delete','truncate','printfile',
     'inesprg','ineschr','inesmir','inesmap','inesbattery','inesfourscreen',
     'inesworkram','inessaveram','ines2',
     'orgpad', 'padorg', 'quit','incchr','chr','setpalette','loadpalette',
@@ -642,7 +735,8 @@ directives = [
     'return','namespace','break','expected',
     'findtext','lastpass', 'endoffunction', '_wipe',
     'loadld65cfg','loadld65cfg?','segment',
-    'start','end','exportmap','importmap',
+    'start','end','exportmap','importmap','_test','_shatterhand_import',
+    'pushpc','pullpc','pushbase','pullbase',
 ]
 
 filters = [
@@ -651,6 +745,7 @@ filters = [
     'evalvar','pop','astext','len',
     'fileexist', 'nfileexist','py',
     'concat','coalesce',
+    'namespace',
 ]
 
 def clamp(n, smallest, largest): return max(smallest, min(n, largest))
@@ -855,7 +950,7 @@ timeSymbols = ['year','month','day','hour','minute','second']
 specialSymbols+= timeSymbols
 specialSymbols+= [x.lower() for x in assembler.nesRegisters.keys()]
 
-def assemble(filename, outputFilename = 'output.bin', listFilename = False, configFile=False, fileData=False, binFile=False, symbolsFile=False, quiet=False):
+def assemble(filename, outputFilename = 'output.bin', listFilename = False, configFile=False, fileData=False, binFile=False, symbolsFile=False, quiet=False, defineSymbol=''):
     assembler.error = False
     #quiet=True
     
@@ -903,6 +998,7 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = False, conf
     cfg.setDefault('main', 'fullTraceback', False)
     cfg.setDefault('main', 'loadld65cfg', True)
     cfg.setDefault('main', 'rememberBankAddress', False)
+    cfg.setDefault('main', 'oldPrint', False)
     
     assembler.quotes = tuple(makeList(cfg.getValue('main', 'quotes')))
 
@@ -914,7 +1010,8 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = False, conf
     startTime = time.time()
     
     try:
-        ret = _assemble(filename, outputFilename, listFilename, cfg=cfg, fileData=fileData, binFile=binFile, symbolsFile=symbolsFile, quiet=quiet)
+        ret = _assemble(filename, outputFilename, listFilename, cfg=cfg, fileData=fileData, binFile=binFile, symbolsFile=symbolsFile, quiet=quiet, defineSymbol=defineSymbol)
+        
         if type(ret) is tuple:
             success, errorText = ret
             
@@ -967,7 +1064,11 @@ def assemble(filename, outputFilename = 'output.bin', listFilename = False, conf
     
     return not assembler.error, assembler.errorText
 
-def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, symbolsFile, quiet):
+def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, symbolsFile, quiet, defineSymbol):
+    
+    if not defineSymbol:
+        defineSymbol = ''
+    defineSymbol = defineSymbol.replace(',',' ').split()
     
     def createHeader():
         header = (list(out[:16]) + [0] * 16)[:16]
@@ -1074,14 +1175,25 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         else:
             return
     def nsSymbol(s):
-        if namespaceSymbol in s:
+        if s.startswith(namespaceSymbol):
+            n = 0
+            while s.startswith(namespaceSymbol):
+                s = s[1:]
+                n -= 1
+            try:
+                ns = assembler.namespace[n]
+            except:
+                ns = assembler.namespace[-1]
+        else:
+            if namespaceSymbol in s:
+                return assembler.lower(s)
+            
+            ns = assembler.namespace[-1]
+        
+        if ns == '':
             return assembler.lower(s)
         
-        ns = assembler.namespace[-1]
-        if ns != '':
-            ns = ns + namespaceSymbol
-        
-        return assembler.lower(ns + s)
+        return assembler.lower(ns + namespaceSymbol + s)
     def getSpecial(s):
         if s == 'sdasm':
             v = 1
@@ -1121,7 +1233,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         elif s == 'namespace':
             return assembler.namespace[-1]
         elif s == 'randword':
-            #return makeHex(random.randrange(0x10000))
             return '${:04x}'.format(random.randrange(0x10000))
         elif s == 'reptindex':
             return str(symbols.get('reptindex', 0))
@@ -1178,6 +1289,16 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             l = 1 if v < 256 else 2
             return v,l
         
+        if mode == 'namespace':
+            v = v.strip()
+            if v.startswith('.') and v == v[0]*len(v):
+                n = -len(v)
+                try:
+                    return assembler.namespace[n], n
+                except:
+                    return 0,1
+            return 0,1
+        
         if mode == 'getbyte':
             a = getValue(v)
             fileOffset = int(getSpecial('fileoffset')) + (a-currentAddress)
@@ -1221,10 +1342,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             if s:
                 v,l = getValueAndLength(s.value, mode=mode)
                 return v,l
-#            if assembler.lower(v) in symbols:
-#                v = symbols[assembler.lower(v)].pop()
-#                l = 1
-#                return v,l
             else:
                 assembler.errorHint = "unknown symbol"
                 v = 0
@@ -1331,15 +1448,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         v = v.strip()
         l = False
         
-#        if '(' in v and v.endswith(')'):
-#            fName = v.split('(')[0]
-#            if fName in functions:
-#                print(functions[fName])
-                
-#                vToken = assembler.tokenize('foo,bar = foobar()')
-#                print(vToken)
-                
-        
         # list indexing like a[1]
         if '[' in v and v.endswith(']') and v.find(']') == v.rfind(']'):
             index = v.split('[',1)[1].split(']')[0]
@@ -1360,29 +1468,13 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 return v,l
         
         vToken = assembler.tokenize(v)
-#        while True:
-#            l = [i for i, x in enumerate(vToken) if '[' in x and ']' not in x]
-#            if len(l) > 0:
-#                i = l[0]
-#                if i+2>len(vToken):
-#                    break
-#                vToken[i:i+2]=[', '.join(vToken[i:i+2])]
-#            else:
-#                break
-                
         
-        #v = v.replace(", ",",").replace(" ,",",")
         if v.startswith("(") and v.endswith(")"):
             v = v[1:-1]
         
         if vToken[-1] in ('x','y','X','Y'):
             vToken = vToken[:-1]
             v = ', '.join(vToken)
-        
-#        if v.endswith(",x"):
-#            v = v.split(",x")[0]
-#        if v.endswith(",y"):
-#            v = v.split(",y")[0]
         
         if v.startswith("(") and v.endswith(")"):
             v = v[1:-1]
@@ -1400,7 +1492,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         
         # this will handle comma separated lists
         vToken = assembler.tokenize(v)
-        #if len(assembler.tokenize(v)) > 1:
         if len(vToken) > 1:
             v = [getValue(x) for x in vToken]
             l = len(v)
@@ -1459,17 +1550,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             l=len(v)
             return v, l
         
-#        if ',' in v:
-#            v = [getValue(x) for x in v.split(',')]
-#            l = len(v)
-#            if mode == 'shuffle':
-#                random.shuffle(v)
-#            elif mode == 'choose':
-#                random.shuffle(v)
-#                v=v[0]
-#                l=1
-                
-#            return v,l
         if v.startswith('-'):
             label = v.split(' ',1)[0]
             if passNum == lastPass:
@@ -1484,11 +1564,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     return l.address, 2
             else:
                 return 0,2
-#            if len(aLabels) > 0:
-#                foundAddresses = sorted([x[1] for x in list(aLabels) if x[0]==label and x[1]<=currentAddress], reverse=True)
-#                if len(foundAddresses) !=0:
-#                    return foundAddresses[0], 2
-#            return int(v), 0
             
         if v.startswith('+'):
             label = v.split(' ',1)[0]
@@ -1504,32 +1579,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     return l.address, 2
             else:
                 return 0,2
-        
-#            if passNum == lastPass and False:
-#                if not aLabelSearch.down.get(currentAddress, False):
-#                    aLabelSearch.down.update({currentAddress:Map(label=v, address=currentAddress, originalLine=originalLine)})
-                
-#                foundAddress = aLabelSearch.down.get(currentAddress).get('foundAddress', False)
-#                if foundAddress:
-#                    return foundAddress, 2
-#            label = v.split(' ',1)[0]
-            
-#            if len(aLabels) >0:
-#                foundAddresses = sorted([x[1] for x in aLabels if x[0]==label and x[1]>currentAddress])
-#                if len(foundAddresses) !=0:
-#                    return foundAddresses[0], 2
-#            return 0,0
-            
-#            try:
-#                return sorted([x[1] for x in aLabels if x[0]==label and x[1]>currentAddress])[0], 2
-#            except:
-#                return 0,0
-#        if v.startswith('+'):
-#            label = v.split(' ',1)[0]
-#            if len(aLabels) > 0:
-#                foundAddresses = sorted([x[1] for x in list(aLabels) if x[0]==label and x[1]>currentAddress])
-#                if len(foundAddresses) !=0:
-#                    return foundAddresses[0], 2
         
         if v.startswith(tuple(assembler.localPrefix)):
             s = getSymbolInfo(v)
@@ -1584,12 +1633,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         elif v.lower() == 'randbyte':
             v = random.randrange(0,256)
             l=1
-#        elif v.startswith('$'):
-#            v = int(v[1:],16)
-#            l = bytesForNumber(v)
-#        elif v.startswith('%'):
-#            l = 1
-#            v = int(v[1:],2)
         elif v.startswith('%'):
             # do this to avoid clogging things up with operations below
             v = '_0b_'+v[1:]
@@ -1670,7 +1713,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             l = len(v)
         
         if mode == 'getbytes':
-            #fileOffset = (addr + (v-currentAddress)) + headerSize
             fileOffset = int(getSpecial('fileoffset')) + (v-currentAddress)
             
             try:
@@ -1678,22 +1720,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 return v, param
             except:
                 return 0, 0
-#        if mode == 'getbyte':
-#            fileOffset = (addr + (v-currentAddress)) + headerSize
-#            try:
-#                v = int(out[fileOffset])
-#            except:
-#                v = 0
-#            l = 1
-#        if mode == 'getword':
-#            fileOffset = int(getSpecial('fileoffset')) + (v-currentAddress)
-            
-#            try:
-#                v = int(out[fileOffset]) + int(out[fileOffset+1]) * 0x100
-#            except:
-#                v = 0
-#            l = 2
-        
         return v, l
 
     def getValue(v, mode=False, param=False, hint=False):
@@ -1714,7 +1740,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         print("Error: could not open file.")
         return False
     
-    print('sdasm {} by {}\n{}'.format(version.get('version'), version.get('author'), version.get('url')))
     print(dedent("""
     ------------------------------------------------------------
     WARNING: This project is currently in {} stage.
@@ -1726,6 +1751,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
     assembler.initialFolder = os.path.split(filename)[0]
     assembler.currentFolder = assembler.initialFolder
     assembler.initialFilename = filename
+    
+    printFilename = False
 
     # Doing it this way removes the line endings
     lines = file.read().splitlines()
@@ -1750,6 +1777,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
     originalLines = lines
     
     symbols = Map()
+    
     symbols.sdasm = 1
     equ = Map()
     
@@ -1760,8 +1788,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
     macros = Map()
     functions = Map()
     tilemaps = Map()
-    blockComment = 0
-    #aLabelSearch = Map(up=Map(), down=Map())
+    assembler.commentBlock = 0
     
     labels = Map()
     labels.anon = Map()
@@ -1794,6 +1821,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         commentSep = makeList(cfg.getValue('main', 'comment'))
         commentBlockOpen = makeList(cfg.getValue('main', 'commentBlockOpen'))
         commentBlockClose = makeList(cfg.getValue('main', 'commentBlockClose'))
+        assembler.commentSep = makeList(cfg.getValue('main', 'comment'))
+        assembler.commentBlockOpen = makeList(cfg.getValue('main', 'commentBlockOpen'))
+        assembler.commentBlockClose = makeList(cfg.getValue('main', 'commentBlockClose'))
         fillValue = getValue(cfg.getValue('main', 'fillValue'))
         localPrefix = makeList(cfg.getValue('main', 'localPrefix'))
         assembler.localPrefix = makeList(cfg.getValue('main', 'localPrefix'))
@@ -1817,8 +1847,15 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
         fullTraceback = cfg.isTrue(cfg.getValue('main', 'fullTraceback'))
         loadld65cfg = cfg.isTrue(cfg.getValue('main', 'loadld65cfg'))
         rememberBankAddress = cfg.isTrue(cfg.getValue('main', 'rememberBankAddress'))
+        oldPrint = cfg.isTrue(cfg.getValue('main', 'oldPrint'))
         
         assembler.namespace = Stack([''])
+        assembler.pcStack = Stack()
+        assembler.baseStack = Stack()
+        
+        
+        for s in defineSymbol:
+            symbols[assembler.lower(s)] = 1
         
         # This is important for consistancy in each pass
         random.setstate(rndState)
@@ -1864,11 +1901,15 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             out = np.array(out, dtype="B")
         
         outputText = ''
+        outputText2 = ''
 
         startAddress = False
         assembler.currentFolder = assembler.initialFolder
         ifLevel = 0
         ifData = Map()
+        
+        depth = 0
+        
         arch = 'nes.cpu'
         headerSize = 0
         bankSize = 0x10000
@@ -1917,14 +1958,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             
             line = line.replace('+:','+ ').replace('-:','- ')
             
-#            if '+:' in line or '-:' in line:
-#                pass
-#                print(line)
-#                line = line.replace('+:','+')
-#                line = line.replace('-:','-')
-#                print(line)            
-            #print(originalLine)
-            
             if assembler.echoLine and passNum == lastPass:
                 if line.strip().lower() != 'echo off':
                     print(originalLine)
@@ -1935,23 +1968,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     if line.startswith(item):
                         line = line.split(item,1)[1].lstrip()
             
-            # remove single line comments
-            for sep in commentSep:
-                line = line.strip().split(sep,1)[0].strip()
-            
-            # remove comment blocks
-            for sep in commentBlockOpen:
-                if sep in line:
-                    line = line.strip().split(sep,1)[0].strip()
-                    blockComment+=1
-            for sep in commentBlockClose:
-                if sep in line:
-                    line = line.strip().split(sep,1)[1].strip()
-                    blockComment-=1
-                    if cfg.isFalse(cfg.getValue('main', 'nestedComments')):
-                        blockComment = 0
-            if blockComment>0:
-                line = ''
+            # remove comments
+            line = assembler.stripComments(line.strip())
             
             # used to help hide internal directive lines
             if line.startswith(assembler.hidePrefix):
@@ -2008,14 +2026,13 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                                 v, l = getValueAndLength(line[fmtEnd+1:end])
                                 
                                 if type(v) is list:
-                                    print("can't format a list")
-                                
-                                v = fmtString.format(v)
+                                    v = ', '.join([fmtString.format(x) for x in v])
+                                else:
+                                    v = fmtString.format(v)
                             elif item == 'getbytes':
                                 v = assembler.tokenize(line[start+2+len(item):end])
                                 v, l = getValueAndLength(v[0], mode=item, param = getValue(v[1]))
                             else:
-                                #v = getValue(line[start+2+len(item):end], mode=item)
                                 v, l = getValueAndLength(line[start+2+len(item):end], mode=item)
                                 assembler.errorLinePos = start+2+len(item)
                             
@@ -2079,11 +2096,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             #     bne+
             #
             if k0.startswith(tuple(opcodes+opcodes2)):
-                chars = '-+<>#$%'
-                for c in chars:
-                    if c in k0:
-                        k0 = k0.split(c,1)[0]
-                        line = line.replace(c, ' '+c)
+                chars = '-+<>#$%()'
+                
+                for index, c in enumerate(k0):
+                    if c in chars:
+                        k0 = line[:index]
+                        line = line[:index]+' '+line[index:]
                         break
             
             k = k0.lower()
@@ -2094,7 +2112,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             if '(' in line and assembler.lower(line.split('(')[0]) in functions:
                 kf = line.split('(')[0].lower()
                 kfdata = line.split('(',1)[1].rsplit(')',1)[0].strip()
-                #kfdata = [x.strip() for x in kfdata.split(',')]
                 
                 kfdata = [x.strip() for x in assembler.tokenize(kfdata)]
                 k = ''
@@ -2119,25 +2136,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     
                     labels.anon[passNum-1][lineNumber] = l
                     
-#                    print(l)
-#                    input('...')
-            
             if k!='' and (k=="-"*len(k) or k=="+"*len(k)):
                 #if not [k,currentAddress] in aLabels:
                 if k.startswith('-') or (not [k,currentAddress] in aLabels):
                     aLabels.append([k, currentAddress])
-                    
-#                    l = Map(
-#                        label=assembler.lower(k),
-#                        lineNumber = lineNumber,
-#                        originalLine = originalLine,
-#                        address = currentAddress,
-#                    )
-                    
-#                    labels.anon[passNum-1][lineNumber] = l
-                    
-#                    print(l)
-#                    input('...')
                     
                     # update so rest of line can be processed
                     line = (line.split(" ",1)+[''])[1].strip()
@@ -2150,44 +2152,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 if k.startswith('-') or k.startswith('+'):
                     k0=k
                     
-#                    if k.startswith('+') and passNum == lastPass-1:
-#                        for a in aLabelSearch.down:
-#                            item = aLabelSearch.down[a]
-#                            if item.get('foundAddress', False)==False and assembler.lower(item.label) == assembler.lower(k0) and currentAddress>a:
-#                                aLabelSearch.down[a].update(foundAddress = currentAddress)
-#                                if 'foobar' in originalLine:
-#                                    print('line=',line)
-#                                    print(hex(a))
-#                                    print('l=',item.originalLine)
-                    
-                    
-#                    if k.startswith('+') and passNum == lastPass:
-#                        for a in aLabelSearch.down:
-#                            item = aLabelSearch.down[a]
-#                            if item.get('foundAddress', False)==False and assembler.lower(item.label) == assembler.lower(k0) and currentAddress>a:
-#                                aLabelSearch.down[a].update(foundAddress = currentAddress)
-                                
-#                                if 'foobar' in originalLine:
-#                                    print('line=',line)
-#                                    print(hex(a))
-#                                    print(hex(currentAddress))
-#                                    print((line+' ').split(' ',1)[1])
-#                                    print('k=',k)
-#                                    print('k0=',k0)
-                                #input('...')
-                    
-                    
                     aLabels.append([assembler.lower(k0), currentAddress])
                     line = (line+' ').split(' ',1)[1].strip()
                     k0 = line.split(" ",1)[0].strip()
                     k = k0.lower()
-#                    if 'foobar' in originalLine  and passNum == lastPass:
-#                        print(hex(currentAddress))
-#                        print('originalLine=',originalLine)
-#                        print('line=',line)
-#                        print('k=',k)
-#                        print('k0=',k0)
-#                        input('...')
                 else:
                     if debug: print('label without suffix: {}'.format(k))
                     k += labelSuffix[0]
@@ -2222,7 +2190,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             # prefix is optional for valid directives
             if k.startswith(".") and k[1:] in directives:
                 k=k[1:]
-            
             
             # optionally allow "then" at the end of some if directives
             if k in ifDirectives and k not in ('else', 'endif'):
@@ -2294,27 +2261,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                         ifData[ifLevel].done = True
                     else:
                         ifData[ifLevel].bool = False
-
-#                if '!=' in data:
-#                    l,r = data.split('!=')
-#                    if ((getValue(l) == getValue(r)) and inv == False) or ((getValue(l) != getValue(r)) and inv == True):
-#                        ifData[ifLevel].bool = False
-#                    else:
-#                        ifData[ifLevel].bool = True
-#                        ifData[ifLevel].done = True
-#                elif '=' in data:
-#                    l,r = data.split('=')
-#                    if ((getValue(l) == getValue(r)) and inv == False) or ((getValue(l) != getValue(r)) and inv == True):
-#                        ifData[ifLevel].bool = True
-#                        ifData[ifLevel].done = True
-#                    else:
-#                        ifData[ifLevel].bool = False
-#                else:
-#                    if (getValue(data) and inv==False) or (not getValue(data) and inv==True):
-#                        ifData[ifLevel].bool = True
-#                        ifData[ifLevel].done = True
-#                    else:
-#                        ifData[ifLevel].bool = False
             if k == 'else':
                 ifData[ifLevel].bool = not ifData[ifLevel].done
             elif k == 'endif':
@@ -2339,6 +2285,11 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     # Don't let it have zero prg
                     header[4] = 1
                 out[0:16] = header
+                
+                # also set position back to start of header
+                bank = None
+                currentAddress = 0
+                addr = 0
             elif k == 'stripheader':
                 headerSize = 16
                 assembler.stripHeader = True
@@ -2353,6 +2304,11 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 # bank resets
                 currentAddress = 0x8000
                 addr = bank * bankSize
+            elif k == 'absorg':
+                v = getValue(line.split()[1].strip())
+                bank = None
+                currentAddress = 0
+                addr = v
             elif k == 'bank':
                 if rememberBankAddress and (bank != None):
                     assembler.bankData[bank] = assembler.bankData.get(bank, {})
@@ -2369,14 +2325,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     assembler.bankData[bank] = assembler.bankData.get(bank, {})
                     currentAddress = assembler.bankData[bank].get('currentAddress', currentAddress)
                     addr = assembler.bankData[bank].get('addr', addr)
-                
-#                print('bank=',bank)
-#                print('banksize=',bankSize)
-#                print('addr=',hex(addr))
-#                print('currentAddress=',hex(currentAddress))
-#                print('startAddress=',hex(startAddress))
-#                print('fileOffset=',hex(int(getSpecial('fileoffset'))))
-                
+            
             elif k == 'segment':
                 if assembler.memcfg:
                     segId = line.split(" ")[1].strip()
@@ -2418,9 +2367,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 bank = int((getValue('prgbanks') * 0x4000) / bankSize)
                 bank = None
                 # bank resets
-                #currentAddress = chrSize*v
                 currentAddress = 0
-                #addr = chrSize*v
                 addr = getValue('prgbanks') * 0x4000 + chrSize*v + headerSize
             elif k == 'setpalette':
                 v = getValue(line.split(" ",1)[1].strip())
@@ -2483,9 +2430,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 txt = line.split(" ", 1)[1]
                 txt = getString(getValue(txt), strip = False) or getString(txt)
                 findValue = assembler.mapText(txt)
-                
-#                if passNum == lastPass:
-                
                 fileOffset = int(getSpecial('fileoffset'))
                 
                 index = fileOffset - 1
@@ -2520,11 +2464,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     fv = v[1]
                     v = v[0]
                 
-                #fileOffset = addr + bank * bankSize + headerSize
                 fileOffset = int(getSpecial('fileoffset'))
-                #print(f'addr={hex(addr)}, bank={hex(bank)}, bankSize={hex(bankSize)}, headerSize={headerSize}, fileOffset={hex(fileOffset)}')
-                #out = out[:fileOffset]+([fv] * v)+out[fileOffset:]
-                
                 out[fileOffset:fileOffset] = [fv] * v
                 
                 # This is used for display in list file
@@ -2533,7 +2473,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 if debug or True:
                     print('insert', v, 'bytes.')
             elif k == 'truncate':
-                fileOffset = addr + bank * bankSize + headerSize
+                #fileOffset = addr + bank * bankSize + headerSize
+                fileOffset = int(getSpecial('fileoffset'))
                 del out[fileOffset:]
             elif k == '_wipe':
                 out = []
@@ -2585,6 +2526,14 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     listFilename = False
                 else:
                     listFilename = filename
+            elif k == 'printfile':
+                data = (line.split(" ",1)+[''])[1].strip()
+                filename = getValueAsString(data) or getString(data)
+
+                if filename.lower() in ('false','0','none', ''):
+                    printFilename = False
+                else:
+                    printFilename = filename
             # hidden internally used directive used with include paths
             if k == "setincludefolder":
                 assembler.currentFolder = (line.split(" ",1)+[''])[1].strip()
@@ -2633,7 +2582,9 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     else:
                         errorText = 'file not found'
                         assembler.errorLinePos = len(line.split(' ',1)[0])+1
-            elif k == 'incchr':
+            elif k == 'incchr' and passNum == lastPass:
+                shatter = getValue('_shatterhand_import')
+                
                 if PIL:
                     imageX, imageY, nTiles, rows, cols = [False]*5
                     filename = line.split(" ",1)[1].strip()
@@ -2651,8 +2602,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     filename = getString(filename)
                     filename = assembler.findFile(filename)
                     if filename:
+                        #print(filename, shatter)
+                        
                         colors = [assembler.palette[x] for x in assembler.currentPalette]
-                        chrData = imageToCHRData(filename, colors=colors, xOffset=imageX,yOffset=imageY,rows=rows, cols=cols, nTiles=nTiles)
+                        chrData = imageToCHRData(filename, colors=colors, xOffset=imageX,yOffset=imageY,rows=rows, cols=cols, nTiles=nTiles, shatter=shatter)
                         
                         if assembler.Sprite8x16:
                             for y in range(0,rows, 2):
@@ -2748,8 +2701,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                         diffOut='; {}\n'.format(filename)
                         n=0
                         for i,b1 in enumerate(out):
-#                            if i > len(diffData):
-#                                break
                             b2 = diffData[i]
                             if b1!=b2:
                                 if k == 'diff':
@@ -2859,7 +2810,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 functions[function].lines = []
                 noOutput = True
             elif k == 'endf' or k == 'endfunction':
-                #functions[function].lines.append( '{}endoffunction'.format(assembler.hidePrefix))
                 function = False
                 noOutput = False
             elif k == 'endoffunction':
@@ -2872,7 +2822,8 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
             elif k == 'rept':
                 reptCount = getValue(line.split(" ",1)[1].strip())
                 startIndex = i
-                depth = 1
+                #depth = 1
+                depth += 1
                 for j in range(i+1, len(lines)):
                     l = lines[j]
                     k = l.strip().split(" ",1)[0].strip().lower()
@@ -2944,7 +2895,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     errorText = 'file not found'
             elif k == 'makeips' and passNum == lastPass:
                 filename = line.split(" ",1)[1].strip()
-                #filename = getString(filename)
                 filename = getValueAsString(filename, fallback=True)
                 
                 ipsData = False
@@ -3010,15 +2960,43 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 files = [x for x in os.listdir(folder) if os.path.splitext(x.lower())[1] in ['.asm']]
                 files = [x for x in files if not x.startswith('_')]
                 lines = lines[:i]+['']+['include {}/{}'.format(folder, x) for x in files]+lines[i+1:]
+            elif k == '_shatterhand_import' and passNum == lastPass:
+                v = line.split(" ",1)[1].strip()
+                if (v.lower() in ['on','true']) or (getValue(v) == 1):
+                    assembler.shatter = True
+                else:
+                    assembler.shatter = False
             elif k == 'echo' and passNum == lastPass:
                 v = line.split(" ",1)[1].strip()
                 if (v.lower() in ['on','true']) or (getValue(v) == 1):
                     assembler.echoLine = True
                 else:
                     assembler.echoLine = False
+            elif k == '_test' and passNum == lastPass:
+                pass
             elif k == 'print' and passNum == lastPass:
+                if oldPrint:
+                    v = (line+' ').split(" ",1)[1].strip()
+                    print(getString(v))
+                else:
+                    v = (line+' ').split(" ",1)[1].strip()
+                    values = assembler.tokenize(v)
+                    for i, value in enumerate(values):
+                        if value == "":
+                            pass
+                        elif assembler.isString(value):
+                            values[i] = assembler.stripQuotes(value)
+                        else:
+                            gv = getValue(value)
+                            if type(gv) is list:
+                                values[i] = getValue(value, mode='astext')
+                            else:
+                                values[i] = str(gv)
+                    print(' '.join(values))
+            elif k == 'printtofile' and passNum == lastPass:
                 v = (line+' ').split(" ",1)[1].strip()
-                print(getString(v))
+                print('> ',getString(v))
+                outputText2 += getString(v) + "\n"
             elif k == 'warning' and passNum == lastPass:
                 v = line.split(" ",1)[1].strip()
                 print('Warning: ' + v)
@@ -3101,7 +3079,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                                 # lazy way to handle things like comments for now
                                 pass
                     tilemaps[tilemap].lines = None
-                    #print('Creating tilemap "{}"'.format(tilemap))
                     tilemap = False
             elif k == 'macro':
                 v = line.split(" ")[1].strip()
@@ -3148,15 +3125,31 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 symbols['return']=None
                 
                 lines = lines[:i]+['']+functions[kf].lines+[assembler.hidePrefix+'namespace _pop_']+lines[i+1:]+ ['{}endoffunction {}'.format(assembler.hidePrefix, ifLevel)]
+            
+            if k == 'pushpc':
+                assembler.pcStack.push(currentAddress)
+            elif k == 'pushbase':
+                assembler.baseStack.push(currentAddress)
+            elif k == 'pullpc':
+                if assembler.pcStack:
+                    k = 'org'
+                    v = '${:04x}'.format(assembler.pcStack.pop())
+                    line = '{} {}'.format(k,v)
+                else:
+                    errorText = 'stack is empty'
+            elif k == 'pullbase':
+                if assembler.baseStack:
+                    k = 'base'
+                    v = '${:04x}'.format(assembler.baseStack.pop())
+                    line = '{} {}'.format(k,v)
+                else:
+                    errorText = 'stack is empty'
             if k == 'enum':
                 v = getValue(line.split(' ',1)[1])
                 currentAddress = getValue(v)
                 noOutput = True
                 
                 oldAddr = addr
-#                addr = getValue(v)
-#                currentAddress = addr
-#                noOutput = True
             elif k == 'ende' or k == 'endenum':
                 addr = oldAddr
                 currentAddress = addr
@@ -3169,15 +3162,12 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 
             elif k == 'org':
                 v = getValue(line.split(' ',1)[1])
-
+                
                 if (orgPad == 1) and (startAddress!=False):
                     k = 'org pad'
                 else:
                     addr = addr + (v-currentAddress)
                     currentAddress += (v-currentAddress)
-                    
-#                    if bank != None:
-#                        addr = addr % bankSize
                     
                     if startAddress==False:
                         startAddress = addr
@@ -3313,6 +3303,10 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 values = line.split(' ',1)[1]
                 
                 values = assembler.tokenize(values)
+                if '' in values and False: # disable detection of empty values for now
+                    l = line.split(' ',1)[1]
+                    assembler.errorLinePos = len(','.join(l.split(',')[:values.index('')])) + len(line.split(' ',1)[0]) + 2
+                    errorText = "missing value"
                 values = [getValue(x) for x in values]
                 values = flattenList(values)
                 
@@ -3320,19 +3314,19 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     if k != 'dl' and clampdb == False:
                         assembler.errorLinePos = len(line.split(' ',1)[0])+1
                         errorText = "invalid value"
-                    #values = [max(0, x) % 256 for x in values]
                     values = [x % 256 for x in values]
                 
                 l = len(values)
                 
-                assembler.errorLinePos = len(line.split(' ',1)[0])+1
                 if l==-1:
+                    assembler.errorLinePos = len(line.split(' ',1)[0])+1
                     errorText = assembler.errorHint or 'value out of range'
                 else:
                     values = makeList(values)
                     
                     for value in values:
                         if value>255:
+                            assembler.errorLinePos = len(line.split(' ',1)[0])+1
                             errorText = "value out of range"
                             break
                         if value < 0:
@@ -3516,12 +3510,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                             b.append(v % 0x100)
                             b.append(math.floor(v/0x100))
             
-#            if originalLine.startswith('showsymb'):
-#                print('-'*20)
-#                for k,v in symbols.items():
-#                    print(k,'=',v)
-#                print('-'*20)
-
             if k == 'define':
                 k = line.split(" ")[1].strip()
                 v = line.split(" ",2)[-1].strip()
@@ -3555,8 +3543,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                 if '(' in value and assembler.lower(value.split('(',1)[0]) in functions:
                     
                     t = assembler.tokenize(keyword)
-#                    fName = value.split('(',1)[0]
-#                    nParams = len(functions[fName].params)
                     
                     # hide what we can from output
                     prefix = assembler.hidePrefix
@@ -3637,37 +3623,16 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                             else:
                                 out = out + ([fv] * (fileOffset-len(out))) + b
                         elif fileOffset<len(out):
-                            #out = out[:fileOffset]+b+out[fileOffset+len(b):]
                             out[fileOffset:fileOffset+len(b)] = b
                     else:
-                        #fileOffset = addr % bankSize + bank*bankSize+headerSize
-                        fileOffset = addr + bank * bankSize + headerSize
-#                        fileOffset = addr % bankSize + bank*bankSize+headerSize
-#                        fileOffset = currentAddress - startAddress  + bank*bankSize+headerSize
-#                        fileOffset = addr + headerSize
-#                        fileOffset = addr + headerSize
-                        #fileOffset = addr
-                        fileOffset = addr + bank * bankSize + headerSize
-                        
-                        fileOffset = addr + headerSize
                         fileOffset = getValue('fileoffset')
-                        
-                        
-#                        print('*', originalLine)
-#                        if bank == 1 and not quiet:
-#                            print('currentAddress=',hex(currentAddress))
-#                            print('addr=',hex(addr))
-#                            print('bank=',bank)
-#                            print('bankSize=',hex(bankSize))
-#                            print('fileOffset=',hex(fileOffset))
                         
                         if fileOffset == len(out):
                             # We're in the right spot, just append
-
+                            
                             if usenp:
                                 out = np.append(out, np.array(b, dtype='B'))
                             else:
-                                #out = out + b
                                 out.extend(b)
                         elif fileOffset>len(out):
                             fv = fillValue
@@ -3677,7 +3642,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                             else:
                                 out = out + ([fv] * (fileOffset-len(out))) + b
                         elif fileOffset<len(out):
-                            #out = out[:fileOffset]+b+out[fileOffset+len(b):]
                             out[fileOffset:fileOffset+len(b)] = b
                 if noOutput==False and noOutputSingle==False:
                     addr = addr + len(b)
@@ -3755,7 +3719,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
                     outputText+='*** {}\n'.format(errorText)
                     outputText+='    {}\n'.format(assembler.currentFilename)
                     
-                    #print(line)
                     print(originalLine)
                     if assembler.errorLinePos:
                         print(' '*assembler.errorLinePos+'^')
@@ -3796,6 +3759,7 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
     
     assembler.outputFilename = outputFilename
     assembler.listFilename = listFilename
+    assembler.printFilename = printFilename
     
     if outputFilename:
         with open(outputFilename, "wb") as file:
@@ -3812,7 +3776,6 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
 
 
     if out[0:4] == list(bytearray("NES", 'utf8')) + [0x1a]:
-    #if headerSize > 0:
         outputTopper+= 'PRG Banks:{}\nCHR Banks:{}\nMapper: {}\n'.format(
             getSpecial('prgbanks'),
             getSpecial('chrbanks'),
@@ -3844,6 +3807,14 @@ def _assemble(filename, outputFilename, listFilename, cfg, fileData, binFile, sy
     else:
         print('No list file')
     
+    if printFilename:
+        with open(printFilename, 'w') as file:
+            print(outputText2, file=file)
+            print('{} written.'.format(printFilename))
+    else:
+        pass
+        #print('No print file')
+    
     if debug and not symbolsFile:
         symbolsFile = 'debug_symbols.txt'
     
@@ -3872,16 +3843,19 @@ if __name__ == '__main__' or sys.argv[0] == 'NESBuilder:asm':
                         help='Specify config file')
     parser.add_argument('-fulltb', action='store_true',
                         help='Show full traceback')
+    parser.add_argument('-d', type=str, metavar="<symbol>",
+                        help='Define symbol')
     parser.add_argument('-q', action='store_true',
                         help='Quiet mode')
     parser.add_argument('-symbols', type=str, metavar="<file>",
                         help='Specify export symbols file')
-
     parser.add_argument('sourcefile', type=str,
                         help='The file to assemble')
     parser.add_argument('outputfile', type=str, nargs='?',
                         help='The output file')
-
+    
+    print('sdasm {} by {}\n{}\n'.format(version.get('version'), version.get('author'), version.get('url')))
+    
     args = parser.parse_args()
 
     filename = args.sourcefile
@@ -3890,9 +3864,10 @@ if __name__ == '__main__' or sys.argv[0] == 'NESBuilder:asm':
     configFile = args.cfg
     binFile = args.bin
     symbolsFile = args.symbols
+    defineSymbol = args.d
     quiet = args.q
     
-    success, errorText = assemble(filename, outputFilename = outputFilename, listFilename = listFilename, configFile = configFile, binFile = binFile, symbolsFile = symbolsFile, quiet=quiet)
+    success, errorText = assemble(filename, outputFilename = outputFilename, listFilename = listFilename, configFile = configFile, binFile = binFile, symbolsFile = symbolsFile, quiet=quiet, defineSymbol=defineSymbol)
     
     if not success:
         print(errorText)
